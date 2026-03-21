@@ -1,5 +1,4 @@
 import { spawn } from 'child_process'
-import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
 const SYSTEM_PROMPT = `You are the NERV_02 AI Command Interface — an autonomous agent orchestration system.
@@ -74,40 +73,62 @@ function buildPrompt(messages: ChatMessage[]): string {
     }
     parts.push('\n--- END HISTORY ---')
   }
-  const last = messages[messages.length - 1]
-  parts.push(`\n\n${last.content}`)
+  parts.push(`\n\n${messages[messages.length - 1].content}`)
   return parts.join('')
 }
 
-// On Vercel: use Anthropic SDK with OAuth token as Bearer auth
-function streamViaSDK(messages: ChatMessage[]): ReadableStream {
-  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
-  const client = new Anthropic(
-    oauthToken
-      ? { authToken: oauthToken }
-      : { apiKey: process.env.ANTHROPIC_API_KEY ?? '' }
-  )
+// Vercel: raw fetch with Authorization: Bearer (OAuth token, bypasses SDK)
+function streamViaAPI(messages: ChatMessage[]): ReadableStream {
+  const token = process.env.CLAUDE_CODE_OAUTH_TOKEN!
   const encoder = new TextEncoder()
-  const anthropicMessages = messages.map(m => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content,
-  }))
+
   return new ReadableStream({
     async start(controller) {
       try {
-        const response = await client.messages.stream({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1024,
-          system: SYSTEM_PROMPT,
-          messages: anthropicMessages,
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'anthropic-version': '2023-06-01',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 1024,
+            system: SYSTEM_PROMPT,
+            stream: true,
+            messages: messages.map(m => ({ role: m.role, content: m.content })),
+          }),
         })
-        for await (const chunk of response) {
-          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-            controller.enqueue(encoder.encode(chunk.delta.text))
+
+        if (!res.ok || !res.body) {
+          const err = await res.text()
+          controller.enqueue(encoder.encode(`\n[ERROR: ${res.status} ${err}]`))
+          controller.close()
+          return
+        }
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const text = decoder.decode(value, { stream: true })
+          for (const line of text.split('\n')) {
+            if (!line.startsWith('data: ')) continue
+            const data = line.slice(6).trim()
+            if (data === '[DONE]') break
+            try {
+              const json = JSON.parse(data)
+              if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
+                controller.enqueue(encoder.encode(json.delta.text))
+              }
+            } catch { /* non-JSON SSE line, skip */ }
           }
         }
       } catch (err) {
-        controller.enqueue(encoder.encode(`\n[ERROR: ${err instanceof Error ? err.message : 'Stream error'}]`))
+        controller.enqueue(encoder.encode(`\n[ERROR: ${err instanceof Error ? err.message : 'Stream failed'}]`))
       } finally {
         controller.close()
       }
@@ -115,7 +136,7 @@ function streamViaSDK(messages: ChatMessage[]): ReadableStream {
   })
 }
 
-// Locally: shell out to claude CLI (uses OAuth session, no key needed)
+// Local: shell out to claude CLI (uses existing OAuth session)
 function streamViaCLI(messages: ChatMessage[]): ReadableStream {
   const prompt = buildPrompt(messages)
   const encoder = new TextEncoder()
@@ -160,7 +181,7 @@ export async function POST(request: Request) {
   }
 
   const stream = process.env.VERCEL
-    ? streamViaSDK(messages)
+    ? streamViaAPI(messages)
     : streamViaCLI(messages)
 
   return new Response(stream, {
