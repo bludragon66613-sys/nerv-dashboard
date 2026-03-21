@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
 const SYSTEM_PROMPT = `You are the NERV_02 AI Command Interface — an autonomous agent orchestration system.
@@ -64,6 +65,84 @@ Otherwise respond conversationally. Be concise, direct, and use a slightly milit
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
+function buildPrompt(messages: ChatMessage[]): string {
+  const parts: string[] = [SYSTEM_PROMPT]
+  if (messages.length > 1) {
+    parts.push('\n\n--- CONVERSATION HISTORY ---')
+    for (const m of messages.slice(0, -1)) {
+      parts.push(`\n${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+    }
+    parts.push('\n--- END HISTORY ---')
+  }
+  const last = messages[messages.length - 1]
+  parts.push(`\n\n${last.content}`)
+  return parts.join('')
+}
+
+// On Vercel: use Anthropic SDK with OAuth token as Bearer auth
+function streamViaSDK(messages: ChatMessage[]): ReadableStream {
+  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN
+  const client = new Anthropic(
+    oauthToken
+      ? { authToken: oauthToken }
+      : { apiKey: process.env.ANTHROPIC_API_KEY ?? '' }
+  )
+  const encoder = new TextEncoder()
+  const anthropicMessages = messages.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }))
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        const response = await client.messages.stream({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: SYSTEM_PROMPT,
+          messages: anthropicMessages,
+        })
+        for await (const chunk of response) {
+          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+            controller.enqueue(encoder.encode(chunk.delta.text))
+          }
+        }
+      } catch (err) {
+        controller.enqueue(encoder.encode(`\n[ERROR: ${err instanceof Error ? err.message : 'Stream error'}]`))
+      } finally {
+        controller.close()
+      }
+    },
+  })
+}
+
+// Locally: shell out to claude CLI (uses OAuth session, no key needed)
+function streamViaCLI(messages: ChatMessage[]): ReadableStream {
+  const prompt = buildPrompt(messages)
+  const encoder = new TextEncoder()
+  return new ReadableStream({
+    start(controller) {
+      const proc = spawn('claude', ['-p', '-', '--model', 'claude-haiku-4-5-20251001'], {
+        shell: true,
+        env: { ...process.env },
+      })
+      proc.stdin.write(prompt)
+      proc.stdin.end()
+      proc.stdout.on('data', (chunk: Buffer) => controller.enqueue(encoder.encode(chunk.toString())))
+      proc.stderr.on('data', (chunk: Buffer) => console.error('[nerv/route]', chunk.toString()))
+      proc.on('close', (code) => {
+        if (code !== 0 && code !== null) {
+          controller.enqueue(encoder.encode(`\n[ERROR: claude exited with code ${code}]`))
+        }
+        controller.close()
+      })
+      proc.on('error', (err) => {
+        controller.enqueue(encoder.encode(`\n[ERROR: ${err.message}]`))
+        controller.close()
+      })
+    },
+  })
+}
+
 export async function POST(request: Request) {
   let messages: ChatMessage[]
   try {
@@ -80,54 +159,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No messages' }, { status: 400 })
   }
 
-  // Build a single prompt: system context + conversation history + last user message
-  const parts: string[] = [SYSTEM_PROMPT]
-
-  if (messages.length > 1) {
-    parts.push('\n\n--- CONVERSATION HISTORY ---')
-    for (const m of messages.slice(0, -1)) {
-      parts.push(`\n${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-    }
-    parts.push('\n--- END HISTORY ---')
-  }
-
-  const last = messages[messages.length - 1]
-  parts.push(`\n\n${last.content}`)
-  const prompt = parts.join('')
-
-  const encoder = new TextEncoder()
-
-  const stream = new ReadableStream({
-    start(controller) {
-      const proc = spawn('claude', ['-p', '-', '--model', 'claude-haiku-4-5-20251001'], {
-        shell: true,
-        env: { ...process.env },
-      })
-
-      proc.stdin.write(prompt)
-      proc.stdin.end()
-
-      proc.stdout.on('data', (chunk: Buffer) => {
-        controller.enqueue(encoder.encode(chunk.toString()))
-      })
-
-      proc.stderr.on('data', (chunk: Buffer) => {
-        console.error('[nerv/route claude stderr]', chunk.toString())
-      })
-
-      proc.on('close', (code) => {
-        if (code !== 0 && code !== null) {
-          controller.enqueue(encoder.encode(`\n[ERROR: claude exited with code ${code}]`))
-        }
-        controller.close()
-      })
-
-      proc.on('error', (err) => {
-        controller.enqueue(encoder.encode(`\n[ERROR: ${err.message}]`))
-        controller.close()
-      })
-    },
-  })
+  const stream = process.env.VERCEL
+    ? streamViaSDK(messages)
+    : streamViaCLI(messages)
 
   return new Response(stream, {
     headers: {
