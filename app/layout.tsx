@@ -6,13 +6,6 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'NERV_02',
   description: 'NERV_02 Autonomous Agent System',
-  icons: {
-    icon: [
-      { url: '/favicon.svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico' },
-    ],
-    apple: '/favicon.svg',
-  },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
