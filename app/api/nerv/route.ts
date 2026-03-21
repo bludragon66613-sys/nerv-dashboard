@@ -1,4 +1,5 @@
 import { spawn } from 'child_process'
+import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
 const SYSTEM_PROMPT = `You are the NERV_02 AI Command Interface — an autonomous agent orchestration system.
@@ -77,58 +78,26 @@ function buildPrompt(messages: ChatMessage[]): string {
   return parts.join('')
 }
 
-// Vercel: raw fetch with Authorization: Bearer (OAuth token, bypasses SDK)
-function streamViaAPI(messages: ChatMessage[]): ReadableStream {
-  const token = process.env.CLAUDE_CODE_OAUTH_TOKEN!
+// Vercel: Anthropic SDK with real API key
+function streamViaSDK(messages: ChatMessage[]): ReadableStream {
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const encoder = new TextEncoder()
-
   return new ReadableStream({
     async start(controller) {
       try {
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'anthropic-version': '2023-06-01',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1024,
-            system: SYSTEM_PROMPT,
-            stream: true,
-            messages: messages.map(m => ({ role: m.role, content: m.content })),
-          }),
+        const response = await client.messages.stream({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          system: SYSTEM_PROMPT,
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
         })
-
-        if (!res.ok || !res.body) {
-          const err = await res.text()
-          controller.enqueue(encoder.encode(`\n[ERROR: ${res.status} ${err}]`))
-          controller.close()
-          return
-        }
-
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const text = decoder.decode(value, { stream: true })
-          for (const line of text.split('\n')) {
-            if (!line.startsWith('data: ')) continue
-            const data = line.slice(6).trim()
-            if (data === '[DONE]') break
-            try {
-              const json = JSON.parse(data)
-              if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-                controller.enqueue(encoder.encode(json.delta.text))
-              }
-            } catch { /* non-JSON SSE line, skip */ }
+        for await (const chunk of response) {
+          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+            controller.enqueue(encoder.encode(chunk.delta.text))
           }
         }
       } catch (err) {
-        controller.enqueue(encoder.encode(`\n[ERROR: ${err instanceof Error ? err.message : 'Stream failed'}]`))
+        controller.enqueue(encoder.encode(`\n[ERROR: ${err instanceof Error ? err.message : 'Stream error'}]`))
       } finally {
         controller.close()
       }
@@ -136,7 +105,7 @@ function streamViaAPI(messages: ChatMessage[]): ReadableStream {
   })
 }
 
-// Local: shell out to claude CLI (uses existing OAuth session)
+// Local: shell out to claude CLI (uses OAuth session, no key needed)
 function streamViaCLI(messages: ChatMessage[]): ReadableStream {
   const prompt = buildPrompt(messages)
   const encoder = new TextEncoder()
@@ -180,15 +149,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No messages' }, { status: 400 })
   }
 
-  const stream = process.env.VERCEL
-    ? streamViaAPI(messages)
-    : streamViaCLI(messages)
+  if (process.env.VERCEL) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured on Vercel' }, { status: 503 })
+    }
+    return new Response(streamViaSDK(messages), {
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' },
+    })
+  }
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Transfer-Encoding': 'chunked',
-      'Cache-Control': 'no-cache',
-    },
+  return new Response(streamViaCLI(messages), {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' },
   })
 }
