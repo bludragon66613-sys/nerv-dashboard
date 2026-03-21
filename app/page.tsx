@@ -692,9 +692,16 @@ export default function Dashboard() {
       )}
 
       {/* Header */}
-      <header className="border-b border-zinc-800/50 px-5 py-3 shrink-0">
+      <header className="border-b border-zinc-800/50 px-5 py-3 shrink-0" style={{ background: '#06070d' }}>
         <div className="flex items-center justify-between">
-          <img src="/logo.png" alt="AEON" className="h-16" />
+          {/* NERV_02 logo */}
+          <div className="flex items-center gap-3">
+            <div style={{ width: 0, height: 0, borderLeft: '9px solid transparent', borderRight: '9px solid transparent', borderBottom: '15px solid #ff6600', filter: 'drop-shadow(0 0 6px #ff660088)' }} />
+            <div>
+              <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, letterSpacing: 6, color: '#ff6600', textShadow: '0 0 10px #ff660044' }}>NERV_02</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 7, letterSpacing: 3, color: '#2e3848', marginTop: 1 }}>AUTONOMOUS AGENT SYSTEM</div>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             {authStatus && !authStatus.authenticated && (
               <button
@@ -716,6 +723,16 @@ export default function Dashboard() {
                 GitHub
               </a>
             )}
+            <a
+              href="https://dashboard-nu-lime-75.vercel.app/nerv"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#ff6600', border: '1px solid #ff660066', padding: '5px 12px', textDecoration: 'none', background: '#ff660010', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#ff660022')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#ff660010')}
+            >
+              ◈ TERMINAL
+            </a>
             <select
               value={model}
               onChange={(e) => updateModel(e.target.value)}
