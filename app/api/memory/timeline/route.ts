@@ -96,6 +96,7 @@ export async function GET(req: NextRequest) {
       typeCounts,
     })
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 503 })
+    console.error('[memory/timeline]', err)
+    return NextResponse.json({ error: 'Failed to load timeline' }, { status: 503 })
   }
 }
