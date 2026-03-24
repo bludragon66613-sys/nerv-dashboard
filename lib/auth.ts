@@ -8,7 +8,8 @@ const SECRET = process.env.DASHBOARD_SECRET ?? (() => {
   console.warn('[auth] DASHBOARD_SECRET not set — using insecure default (dev only)')
   return 'change-me-32-char-secret-xxxxxxxx'
 })()
-const TTL = parseInt(process.env.JWT_TTL_SECONDS || '86400', 10)
+const _ttl = parseInt(process.env.JWT_TTL_SECONDS || '86400', 10)
+const TTL = Number.isFinite(_ttl) && _ttl > 0 ? _ttl : 86400
 
 export function issueToken(): string {
   const now = Math.floor(Date.now() / 1000)

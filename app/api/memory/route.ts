@@ -69,6 +69,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ files })
   } catch (err) {
-    return NextResponse.json({ files: [], error: String(err) }, { status: 500 })
+    console.error('[memory]', err)
+    return NextResponse.json({ files: [], error: 'Failed to load memory files' }, { status: 500 })
   }
 }
