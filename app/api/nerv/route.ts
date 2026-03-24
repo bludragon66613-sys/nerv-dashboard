@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import Anthropic from '@anthropic-ai/sdk'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 
 const SYSTEM_PROMPT = `You are the NERV_02 AI Command Interface — an autonomous agent orchestration system.
 
@@ -12,6 +13,13 @@ INTEL:
 - hacker-news-digest: Top Hacker News stories
 - paper-digest: AI/ML research paper summaries
 - tweet-digest: Twitter/X digest
+- reddit-digest: Top Reddit posts from tracked subreddits
+- research-brief: Deep dive on a topic — web search + papers + synthesis
+- search-papers: Search recent academic papers on a topic and save summary
+- security-digest: Monitor GitHub Advisory Database for security advisories
+- fetch-tweets: Search X/Twitter for tweets by keyword or username
+- search-skill: Search the open agent skills ecosystem for skills to install
+- idea-capture: Quick note capture via Telegram — stores to memory
 
 CRYPTO TRADING (Hyperliquid):
 - hl-intel: FLAGSHIP — full intelligence brief: top whale positions + win rates + market structure + macro + geopolitics → ranked strategies with entry/exit levels. Run this first.
@@ -48,6 +56,10 @@ SYSTEM:
 - memory-flush: Consolidate memory
 - weekly-review: Weekly review (Mondays)
 - heartbeat: System heartbeat check
+
+SELF-IMPROVEMENT:
+- skill-eval: Evaluate any skill against a fixed rubric (completeness/efficiency/specificity). Pass skill name as var.
+- skill-evolve: Autonomous evolution loop — picks lowest-scored skill, makes one surgical change, keeps if improved
 
 When the user asks you to run, trigger, or dispatch an agent, respond with exactly this on its own line (no extra text around it):
 DISPATCH:{"skill":"<skill-name>"}
@@ -112,8 +124,9 @@ function streamViaCLI(messages: ChatMessage[]): ReadableStream {
   return new ReadableStream({
     start(controller) {
       const proc = spawn('claude', ['-p', '-', '--model', 'claude-haiku-4-5-20251001'], {
-        shell: true,
+        shell: false,
         env: { ...process.env },
+        timeout: 60000,
       })
       proc.stdin.write(prompt)
       proc.stdin.end()
@@ -133,7 +146,8 @@ function streamViaCLI(messages: ChatMessage[]): ReadableStream {
   })
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   let messages: ChatMessage[]
   try {
     const body = await request.json()
@@ -149,16 +163,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No messages' }, { status: 400 })
   }
 
-  if (process.env.VERCEL) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured on Vercel' }, { status: 503 })
-    }
-    return new Response(streamViaSDK(messages), {
+  // Filter out messages with empty content to avoid API errors
+  const cleanMessages = messages.filter(m => m.content && m.content.trim().length > 0)
+  if (cleanMessages.length === 0) {
+    return NextResponse.json({ error: 'No non-empty messages' }, { status: 400 })
+  }
+
+  // Use SDK only when a real API key is present (sk-ant-api03-...)
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (apiKey && apiKey.startsWith('sk-ant-api')) {
+    return new Response(streamViaSDK(cleanMessages), {
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' },
     })
   }
 
-  return new Response(streamViaCLI(messages), {
+  return new Response(streamViaCLI(cleanMessages), {
     headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' },
   })
 }
