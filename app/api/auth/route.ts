@@ -114,39 +114,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, method: isOauth ? 'oauth' : 'api-key', secret: secretName })
     }
 
-    // No key provided — try claude setup-token and extract the sk-ant-oat token
-    const output = execSync('claude setup-token', {
-      stdio: 'pipe',
-      timeout: 60000,
-    }).toString()
-
-    // Find the token line and any continuation (token wraps across lines in terminal output)
-    const tokenBlock = output.slice(output.indexOf('sk-ant-oat'))
-    if (!tokenBlock.startsWith('sk-ant-oat')) {
+    // No key provided — read token directly from ~/.claude/.credentials.json
+    const os = await import('os')
+    const path = await import('path')
+    const fs = await import('fs/promises')
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json')
+    const raw = await fs.readFile(credPath, 'utf8').catch(() => null)
+    if (!raw) {
       return NextResponse.json({
-        error: 'Could not extract token. Paste your API key manually instead.',
+        error: 'No Claude credentials found. Paste your API key manually.',
       }, { status: 400 })
     }
-    // Take everything until we hit a space, newline-then-non-alnum, or empty line
-    const tokenChars: string[] = []
-    for (const line of tokenBlock.split('\n')) {
-      const trimmed = line.trim()
-      if (tokenChars.length === 0) {
-        tokenChars.push(trimmed)
-      } else if (/^[A-Za-z0-9_\-]+$/.test(trimmed)) {
-        tokenChars.push(trimmed)
-      } else {
-        break
-      }
+    const creds = JSON.parse(raw)
+    const token = creds?.claudeAiOauth?.accessToken
+    if (!token || !token.startsWith('sk-ant-oat')) {
+      return NextResponse.json({
+        error: 'No OAuth token in credentials. Paste your API key manually.',
+      }, { status: 400 })
     }
-    const token = tokenChars.join('')
 
     execSync('gh secret set CLAUDE_CODE_OAUTH_TOKEN', {
       input: token,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
-    return NextResponse.json({ ok: true, method: 'oauth' })
+    return NextResponse.json({ ok: true, method: 'oauth-auto' })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to setup auth'
     return NextResponse.json({ error: msg }, { status: 500 })
