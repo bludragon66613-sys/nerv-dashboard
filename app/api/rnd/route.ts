@@ -3,7 +3,7 @@ import { requireAuth } from '@/lib/auth'
 import fs from 'fs/promises'
 import path from 'path'
 import { resolve } from 'path'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 
 const REPO_ROOT = resolve(process.cwd(), '..')
 const LOGS_DIR = path.join(REPO_ROOT, 'memory', 'logs')
@@ -76,13 +76,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const focus = (body.focus || '').replace(/[^a-zA-Z0-9_ .\-/#@]/g, '').slice(0, 80)
-    const model = (body.model || 'claude-opus-4-6').replace(/[^a-zA-Z0-9_\-]/g, '')
+    const model = (body.model || 'claude-sonnet-4-6').replace(/[^a-zA-Z0-9_\-]/g, '')
 
-    let cmd = `gh workflow run rd-council-cron.yml`
-    if (focus) cmd += ` -f focus=${JSON.stringify(focus)}`
-    if (model) cmd += ` -f model=${JSON.stringify(model)}`
+    const args = ['workflow', 'run', 'rd-council-cron.yml']
+    if (focus) args.push('-f', `focus=${focus}`)
+    if (model) args.push('-f', `model=${model}`)
 
-    execSync(cmd, { stdio: 'pipe', cwd: REPO_ROOT })
+    execFileSync('gh', args, { stdio: 'pipe', cwd: REPO_ROOT })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[rnd POST]', err)

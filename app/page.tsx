@@ -1,6 +1,9 @@
 'use client'
+import { apiFetch } from '@/lib/client-auth'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+
+interface LLMProvider { id: string; name: string; secretName: string; autoDetectable: boolean; keyPlaceholder: string; connected: boolean }
 
 interface Skill {
   name: string
@@ -28,8 +31,8 @@ interface Secret {
 }
 
 const MODELS = [
-  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ]
 
@@ -44,9 +47,9 @@ const DAYS = [
   { label: 'Sun', value: 0 },
 ]
 
-// Get the user's UTC offset in hours (e.g. UTC-5 → -5, UTC+9 → 9)
-function getUtcOffsetHours(): number {
-  return -(new Date().getTimezoneOffset() / 60)
+// Get the user's UTC offset in minutes (e.g. UTC+5:30 → 330, UTC-5 → -300)
+function getUtcOffsetMinutes(): number {
+  return -(new Date().getTimezoneOffset())
 }
 
 function getLocalTzAbbr(): string {
@@ -58,12 +61,14 @@ function getLocalTzAbbr(): string {
   }
 }
 
-function utcToLocal24(utcH: number): number {
-  return ((utcH + getUtcOffsetHours()) % 24 + 24) % 24
+function utcToLocal(utcH: number, utcM: number): { h: number; m: number } {
+  const total = ((utcH * 60 + utcM + getUtcOffsetMinutes()) % (24 * 60) + 24 * 60) % (24 * 60)
+  return { h: Math.floor(total / 60), m: total % 60 }
 }
 
-function localToUtc24(localH: number): number {
-  return ((localH - getUtcOffsetHours()) % 24 + 24) % 24
+function localToUtc(localH: number, localM: number): { h: number; m: number } {
+  const total = ((localH * 60 + localM - getUtcOffsetMinutes()) % (24 * 60) + 24 * 60) % (24 * 60)
+  return { h: Math.floor(total / 60), m: total % 60 }
 }
 
 function parseCron(cron: string): { mode: 'interval'; value: number; unit: 'm' | 'h' } | { mode: 'time'; hour12: number; minute: number; ampm: 'AM' | 'PM'; days: number[] } {
@@ -78,12 +83,13 @@ function parseCron(cron: string): { mode: 'interval'; value: number; unit: 'm' |
     return { mode: 'interval', value: h === '*' ? 1 : parseInt(h.split('/')[1]) || 1, unit: 'h' }
   }
   const utcH = parseInt(h)
-  const minute = parseInt(m) || 0
-  const localH = utcToLocal24(utcH)
+  const utcM = parseInt(m) || 0
+  const local = utcToLocal(utcH, utcM)
+  const localH = local.h
   return {
     mode: 'time',
     hour12: localH > 12 ? localH - 12 : localH === 0 ? 12 : localH,
-    minute,
+    minute: local.m,
     ampm: localH >= 12 ? 'PM' : 'AM',
     days: dow === '*' ? [-1] : dow.split(',').map(d => parseInt(d)).filter(d => !isNaN(d)),
   }
@@ -103,9 +109,9 @@ function buildCron(mode: 'interval' | 'time', intervalValue: number, intervalUni
   let localH = hour12
   if (ampm === 'PM' && localH !== 12) localH += 12
   if (ampm === 'AM' && localH === 12) localH = 0
-  const utcH = localToUtc24(localH)
+  const utc = localToUtc(localH, minute)
   const dowField = days.includes(-1) ? '*' : days.sort((a, b) => a - b).join(',')
-  return `${minute} ${utcH} * * ${dowField}`
+  return `${utc.m} ${utc.h} * * ${dowField}`
 }
 
 function ScheduleEditor({ cron, onSave }: { cron: string; onSave: (cron: string) => void }) {
@@ -195,7 +201,7 @@ function ScheduleEditor({ cron, onSave }: { cron: string; onSave: (cron: string)
       )}
 
       {/* Apply */}
-      <button type="button" onClick={apply} className="bg-green-600 hover:bg-green-500 text-white text-[10px] px-2.5 py-0.5 rounded transition-colors ml-auto shrink-0">
+      <button type="button" onClick={apply} className="bg-[#ff6600]/20 hover:bg-[#ff6600]/30 text-[#ff6600] text-[10px] px-2.5 py-0.5 rounded-none border border-[#ff6600]/50 transition-colors ml-auto shrink-0">
         Apply
       </button>
     </div>
@@ -220,7 +226,7 @@ function VarEditor({ value: initial, onSave }: { value: string; onSave: (v: stri
         type="button"
         onClick={() => onSave(value)}
         disabled={value === initial}
-        className="bg-green-600 hover:bg-green-500 text-white text-[10px] px-2.5 py-0.5 rounded transition-colors disabled:opacity-30 shrink-0"
+        className="bg-[#ff6600]/20 hover:bg-[#ff6600]/30 text-[#ff6600] text-[10px] px-2.5 py-0.5 rounded-none border border-[#ff6600]/50 transition-colors disabled:opacity-30 shrink-0"
       >
         Save
       </button>
@@ -279,11 +285,17 @@ export default function Dashboard() {
   const [uploadName, setUploadName] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Auth
+  // Auth (Claude auto-connect on load)
   const [authStatus, setAuthStatus] = useState<{ authenticated: boolean } | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
-  const [showAuthModal, setShowAuthModal] = useState(false)
-  const [authKey, setAuthKey] = useState('')
+  const autoAuthAttempted = useRef(false)
+
+  // LLM Connect modal
+  const [showConnectModal, setShowConnectModal] = useState(false)
+  const [llmProviders, setLlmProviders] = useState<LLMProvider[]>([])
+  const [llmLoading, setLlmLoading] = useState<Record<string, boolean>>({})
+  const [llmKeyInputs, setLlmKeyInputs] = useState<Record<string, string>>({})
+  const [llmKeyVisible, setLlmKeyVisible] = useState<Set<string>>(new Set())
 
   const flash = (msg: string) => {
     setToast(msg)
@@ -292,7 +304,7 @@ export default function Dashboard() {
 
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth')
+      const res = await apiFetch('/api/auth')
       if (res.ok) setAuthStatus(await res.json())
     } catch { /* ignore */ }
   }
@@ -300,33 +312,57 @@ export default function Dashboard() {
   const setupAuth = async (key?: string) => {
     setAuthLoading(true)
     try {
-      const res = await fetch('/api/auth', {
+      const res = await apiFetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(key ? { key } : {}),
       })
       if (res.ok) {
-        flash('Auth token saved to GitHub')
         setAuthStatus({ authenticated: true })
-        setShowAuthModal(false)
-        setAuthKey('')
         fetchData()
       } else {
-        // Auto-setup failed — show modal so user can paste key manually
-        if (!key) {
-          setShowAuthModal(true)
-        }
         const data = await res.json()
-        flash(data.error || 'Auto-setup failed — paste your API key')
+        flash(data.error || 'Auto-setup failed')
       }
     } finally {
       setAuthLoading(false)
     }
   }
 
+  const fetchProviders = async () => {
+    try {
+      const res = await apiFetch('/api/llm')
+      if (res.ok) setLlmProviders((await res.json()).providers)
+    } catch { /* ignore */ }
+  }
+
+  const connectProvider = async (id: string, key?: string) => {
+    setLlmLoading(prev => ({ ...prev, [id]: true }))
+    try {
+      const res = await apiFetch('/api/llm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: id, key }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setLlmKeyVisible(prev => { const n = new Set(prev); n.delete(id); return n })
+        setLlmKeyInputs(prev => ({ ...prev, [id]: '' }))
+        flash(`${id} connected`)
+        await fetchProviders()
+      } else if (data.needsKey) {
+        setLlmKeyVisible(prev => new Set(prev).add(id))
+      } else {
+        flash(data.error || 'Connection failed')
+      }
+    } finally {
+      setLlmLoading(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
   const checkSync = async () => {
     try {
-      const res = await fetch('/api/sync')
+      const res = await apiFetch('/api/sync')
       if (res.ok) setHasChanges((await res.json()).hasChanges)
     } catch { /* ignore */ }
   }
@@ -334,7 +370,7 @@ export default function Dashboard() {
   const syncToGithub = async () => {
     setSyncing(true)
     try {
-      const res = await fetch('/api/sync', { method: 'POST' })
+      const res = await apiFetch('/api/sync', { method: 'POST' })
       if (res.ok) {
         const data = await res.json()
         flash(data.message || 'Synced to GitHub')
@@ -350,9 +386,9 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     try {
       const [skillsRes, runsRes, secretsRes] = await Promise.all([
-        fetch('/api/skills'),
-        fetch('/api/runs'),
-        fetch('/api/secrets'),
+        apiFetch('/api/skills'),
+        apiFetch('/api/runs'),
+        apiFetch('/api/secrets'),
       ])
       if (skillsRes.ok) {
         const data = await skillsRes.json()
@@ -372,6 +408,7 @@ export default function Dashboard() {
     }
     checkSync()
     checkAuth()
+    fetchProviders()
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
@@ -381,7 +418,7 @@ export default function Dashboard() {
   const updateModel = async (newModel: string) => {
     setModel(newModel)
     try {
-      const res = await fetch('/api/skills', {
+      const res = await apiFetch('/api/skills', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: newModel }),
@@ -396,7 +433,7 @@ export default function Dashboard() {
   const toggleSkill = async (name: string, enabled: boolean) => {
     setBusy(b => ({ ...b, [name]: true }))
     try {
-      const res = await fetch('/api/skills', {
+      const res = await apiFetch('/api/skills', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, enabled }),
@@ -414,7 +451,7 @@ export default function Dashboard() {
   const updateSchedule = async (name: string, schedule: string) => {
     setBusy(b => ({ ...b, [`s-${name}`]: true }))
     try {
-      const res = await fetch('/api/skills', {
+      const res = await apiFetch('/api/skills', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, schedule }),
@@ -431,7 +468,7 @@ export default function Dashboard() {
 
   const refreshRuns = useCallback(async () => {
     try {
-      const res = await fetch('/api/runs')
+      const res = await apiFetch('/api/runs')
       if (res.ok) setRuns((await res.json()).runs)
     } catch { /* ignore */ }
   }, [])
@@ -464,9 +501,17 @@ export default function Dashboard() {
     return () => clearInterval(id)
   }, [refreshRuns])
 
+  // Auto-authenticate once if not authenticated
+  useEffect(() => {
+    if (authStatus !== null && !authStatus.authenticated && !authLoading && !autoAuthAttempted.current) {
+      autoAuthAttempted.current = true
+      setupAuth()
+    }
+  }, [authStatus])
+
   const updateVar = async (name: string, v: string) => {
     try {
-      const res = await fetch('/api/skills', {
+      const res = await apiFetch('/api/skills', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, var: v }),
@@ -482,7 +527,7 @@ export default function Dashboard() {
   const deleteSkill = async (name: string) => {
     setBusy(b => ({ ...b, [`d-${name}`]: true }))
     try {
-      const res = await fetch('/api/skills', {
+      const res = await apiFetch('/api/skills', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -530,7 +575,7 @@ export default function Dashboard() {
     if (!secretValue.trim()) return
     setBusy(b => ({ ...b, [`sec-${name}`]: true }))
     try {
-      const res = await fetch('/api/secrets', {
+      const res = await apiFetch('/api/secrets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, value: secretValue.trim() }),
@@ -558,7 +603,7 @@ export default function Dashboard() {
   const deleteSecret = async (name: string) => {
     setBusy(b => ({ ...b, [`sec-${name}`]: true }))
     try {
-      const res = await fetch('/api/secrets', {
+      const res = await apiFetch('/api/secrets', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name }),
@@ -613,7 +658,7 @@ export default function Dashboard() {
     if (uploadFiles.length === 0) return
     setImportLoading(true)
     try {
-      const res = await fetch('/api/upload', {
+      const res = await apiFetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: uploadFiles, name: uploadName || undefined }),
@@ -639,7 +684,7 @@ export default function Dashboard() {
         setUploadFiles([])
         setUploadName('')
         // Refresh skills list but not secrets (detected secrets were just added to local state)
-        fetch('/api/skills').then(r => r.ok ? r.json() : null).then(d => {
+        apiFetch('/api/skills').then(r => r.ok ? r.json() : null).then(d => {
           if (d) { setSkills(d.skills); if (d.model) setModel(d.model); if (d.repo) setRepo(d.repo) }
         })
         checkSync()
@@ -661,10 +706,10 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-6">
         <div className="relative flex items-center justify-center">
-          <div className="absolute h-16 w-16 rounded-full border border-green-500/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
-          <div className="absolute h-16 w-16 rounded-full border border-green-500/20" style={{ animation: 'pulse-ring 2s ease-out infinite 0.6s' }} />
-          <div className="absolute h-16 w-16 rounded-full border border-green-500/20" style={{ animation: 'pulse-ring 2s ease-out infinite 1.2s' }} />
-          <div className="h-3 w-3 rounded-full bg-green-500 shadow-[0_0_12px_rgba(34,197,94,0.4)]" />
+          <div className="absolute h-16 w-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
+          <div className="absolute h-16 w-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite 0.6s' }} />
+          <div className="absolute h-16 w-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite 1.2s' }} />
+          <div className="h-3 w-3 rounded-full bg-[#ff6600] shadow-[0_0_12px_rgba(255,102,0,0.4)]" />
         </div>
         <div style={{ animation: 'fade-in-up 0.5s ease-out 0.3s both' }} />
       </div>
@@ -686,7 +731,7 @@ export default function Dashboard() {
     <div className="h-screen flex flex-col">
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-4 right-4 z-50 bg-zinc-800 border border-zinc-700 text-zinc-200 px-4 py-2 rounded-lg text-sm shadow-lg">
+        <div className="fixed bottom-4 right-4 z-50 bg-[#06070d] border border-[#ff6600]/40 border-l-2 border-l-[#ff6600] text-[#a8b4c4] px-4 py-2 rounded-none text-[11px] font-mono tracking-wider shadow-lg">
           {toast}
         </div>
       )}
@@ -703,28 +748,32 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {authStatus && !authStatus.authenticated && (
-              <button
-                onClick={() => setupAuth()}
-                disabled={authLoading}
-                className="bg-green-600 hover:bg-green-500 text-white text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {authLoading ? 'Setting up...' : 'Authenticate'}
-              </button>
-            )}
+            <button
+              onClick={() => { setShowConnectModal(true); fetchProviders() }}
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#ff6600', border: '1px solid #ff660066', padding: '5px 12px', background: '#ff660010', transition: 'background 0.15s', display: 'flex', alignItems: 'center', gap: 6 }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#ff660022')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#ff660010')}
+            >
+              {llmProviders.length > 0 && (
+                <span style={{ fontSize: 9, color: llmProviders.some(p => p.connected) ? '#00ff88' : '#cc4400' }}>
+                  ● {llmProviders.filter(p => p.connected).length}/{llmProviders.length}
+                </span>
+              )}
+              ◈ CONNECT
+            </button>
             {repo && (
               <a
                 href={`https://github.com/${repo}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg border border-zinc-700/50 transition-colors flex items-center gap-1.5"
+                className="bg-transparent hover:bg-[#1c2230] text-[#a8b4c4] text-[11px] px-3 py-1.5 rounded-none border border-[#1c2230] font-mono tracking-wider transition-colors flex items-center gap-1.5"
               >
                 <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                 GitHub
               </a>
             )}
             <a
-              href="https://dashboard-nu-lime-75.vercel.app/nerv"
+              href="/nerv"
               target="_blank"
               rel="noopener noreferrer"
               style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#ff6600', border: '1px solid #ff660066', padding: '5px 12px', textDecoration: 'none', background: '#ff660010', transition: 'background 0.15s' }}
@@ -733,10 +782,61 @@ export default function Dashboard() {
             >
               ◈ TERMINAL
             </a>
+            <a
+              href="/memory"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#aa55ff', border: '1px solid #aa55ff66', padding: '5px 12px', textDecoration: 'none', background: '#aa55ff10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#aa55ff22')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#aa55ff10')}
+            >
+              ◈ MEMORY
+            </a>
+            <a
+              href="/memory/timeline"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#00ccff', border: '1px solid #00ccff66', padding: '5px 12px', textDecoration: 'none', background: '#00ccff10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#00ccff22')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#00ccff10')}
+            >
+              ◈ TIMELINE
+            </a>
+            <a
+              href="/rnd"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#00ccdd', border: '1px solid #00ccdd66', padding: '5px 12px', textDecoration: 'none', background: '#00ccdd10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#00ccdd22')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#00ccdd10')}
+            >
+              ◈ R&D
+            </a>
+            
+            <a
+              href="/agency"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#f59e0b', border: '1px solid #f59e0b66', padding: '5px 12px', textDecoration: 'none', background: '#f59e0b10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#f59e0b22')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#f59e0b10')}
+            >
+              ◈ AGENCY
+            </a>
+            <a
+              href="/agents"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#4488ff', border: '1px solid #4488ff66', padding: '5px 12px', textDecoration: 'none', background: '#4488ff10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#4488ff22')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#4488ff10')}
+            >
+              ◈ AGENTS
+            </a>
             <select
               value={model}
               onChange={(e) => updateModel(e.target.value)}
-              className="bg-zinc-800 text-zinc-300 text-xs rounded-lg px-2.5 py-1.5 border border-zinc-700/50 outline-none cursor-pointer appearance-none pr-7 font-mono"
+              className="bg-[#06070d] text-[#a8b4c4] text-[11px] rounded-none px-2.5 py-1.5 border border-[#1c2230] outline-none cursor-pointer appearance-none pr-7 font-mono tracking-wider"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}
             >
               {MODELS.map(m => (
@@ -745,14 +845,14 @@ export default function Dashboard() {
             </select>
             <button
               onClick={() => setShowImport(true)}
-              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg border border-zinc-700/50 transition-colors"
+              className="bg-transparent hover:bg-[#1c2230] text-[#a8b4c4] text-[11px] px-3 py-1.5 rounded-none border border-[#1c2230] font-mono tracking-wider transition-colors"
             >
               + Add Skill
             </button>
             <button
               onClick={syncToGithub}
               disabled={syncing || !hasChanges}
-              className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg border border-zinc-700/50 transition-colors disabled:opacity-50"
+              className="bg-transparent hover:bg-[#1c2230] text-[#a8b4c4] text-[11px] px-3 py-1.5 rounded-none border border-[#1c2230] font-mono tracking-wider transition-colors disabled:opacity-50"
             >
               {syncing ? 'Pushing...' : 'Push to GitHub'}
             </button>
@@ -767,8 +867,8 @@ export default function Dashboard() {
         <div className="border-r border-zinc-800/50 flex flex-col min-h-0">
           <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/30">
             <div className="flex items-baseline gap-3">
-              <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Skills</h2>
-              <span className="text-xs text-zinc-600">{enabledCount} / {skills.length} enabled</span>
+              <h2 className="text-[10px] font-bold text-[#ff6600] uppercase tracking-[0.2em]">Skills</h2>
+              <span className="text-[10px] text-zinc-600">{enabledCount} / {skills.length} enabled</span>
             </div>
             <span className="text-[10px] text-zinc-600">Timezone: {getLocalTzAbbr()}</span>
           </div>
@@ -784,7 +884,7 @@ export default function Dashboard() {
                     onClick={(e) => { e.stopPropagation(); toggleSkill(skill.name, !skill.enabled) }}
                     disabled={!!busy[skill.name]}
                     className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
-                      skill.enabled ? 'bg-green-600' : 'bg-zinc-700'
+                      skill.enabled ? 'bg-[#00aa55]' : 'bg-zinc-700'
                     }`}
                   >
                     <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
@@ -863,8 +963,8 @@ export default function Dashboard() {
         {/* Column 2: Secrets */}
         <div className="border-r border-zinc-800/50 flex flex-col min-h-0">
           <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/30">
-            <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Secrets</h2>
-            <span className="text-xs text-zinc-600">{secretsSet} / {secrets.length} set</span>
+            <h2 className="text-[10px] font-bold text-[#ff6600] uppercase tracking-[0.2em]">Secrets</h2>
+            <span className="text-[10px] text-zinc-600">{secretsSet} / {secrets.length} set</span>
           </div>
           <div className="flex-1 overflow-y-auto">
             {['Core', 'Telegram', 'Discord', 'Slack', 'Skill Keys'].map(group => {
@@ -949,7 +1049,7 @@ export default function Dashboard() {
                           <button
                             onClick={() => saveSecret(secret.name)}
                             disabled={!secretValue.trim() || !!busy[`sec-${secret.name}`]}
-                            className="bg-green-600 hover:bg-green-500 text-white text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-50"
+                            className="bg-[#ff6600]/20 hover:bg-[#ff6600]/30 text-[#ff6600] text-[10px] px-2 py-1 rounded-none border border-[#ff6600]/50 transition-colors disabled:opacity-50"
                           >
                             {busy[`sec-${secret.name}`] ? '\u00b7\u00b7\u00b7' : 'Save'}
                           </button>
@@ -986,7 +1086,7 @@ export default function Dashboard() {
                       <button
                         onClick={() => saveSecret(newSecretName)}
                         disabled={!secretValue.trim()}
-                        className="bg-green-600 hover:bg-green-500 text-white text-[10px] px-2 py-1 rounded transition-colors disabled:opacity-50"
+                        className="bg-[#ff6600]/20 hover:bg-[#ff6600]/30 text-[#ff6600] text-[10px] px-2 py-1 rounded-none border border-[#ff6600]/50 transition-colors disabled:opacity-50"
                       >
                         Save
                       </button>
@@ -1014,7 +1114,7 @@ export default function Dashboard() {
         {/* Column 3: Runs */}
         <div className="flex flex-col min-h-0">
           <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/30">
-            <h2 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Runs</h2>
+            <h2 className="text-[10px] font-bold text-[#ff6600] uppercase tracking-[0.2em]">Runs</h2>
             <button onClick={fetchData} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
               refresh
             </button>
@@ -1029,10 +1129,10 @@ export default function Dashboard() {
                 >
                   &larr;
                 </button>
-                <span className={`text-xs ${
+                <span className={`text-xs font-mono ${
                   selectedRun.conclusion === 'success' ? 'text-green-400' :
                   selectedRun.conclusion === 'failure' ? 'text-red-400' :
-                  selectedRun.status === 'in_progress' ? 'text-yellow-400' :
+                  selectedRun.status === 'in_progress' ? 'text-[#ff6600]' :
                   'text-zinc-600'
                 }`}>
                   {selectedRun.conclusion === 'success' ? '\u2713' :
@@ -1053,8 +1153,8 @@ export default function Dashboard() {
                 {logsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="relative flex items-center justify-center">
-                      <div className="absolute h-8 w-8 rounded-full border border-green-500/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
-                      <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+                      <div className="absolute h-8 w-8 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
+                      <div className="h-2 w-2 rounded-full bg-[#ff6600] shadow-[0_0_8px_rgba(255,102,0,0.4)]" />
                     </div>
                   </div>
                 ) : (
@@ -1097,10 +1197,10 @@ export default function Dashboard() {
                     onClick={() => viewRunLogs(run)}
                     className="w-full flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800/20 hover:bg-zinc-900/50 transition-colors text-left"
                   >
-                    <span className={`text-xs ${
+                    <span className={`text-xs font-mono ${
                       run.conclusion === 'success' ? 'text-green-400' :
                       run.conclusion === 'failure' ? 'text-red-400' :
-                      run.status === 'in_progress' ? 'text-yellow-400' :
+                      run.status === 'in_progress' ? 'text-[#ff6600]' :
                       'text-zinc-600'
                     }`}>
                       {run.conclusion === 'success' ? '\u2713' :
@@ -1120,9 +1220,9 @@ export default function Dashboard() {
       {/* Import Modal */}
       {showImport && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md mx-4 p-6 shadow-2xl">
+          <div className="bg-[#06070d] border border-[#1c2230] rounded-none w-full max-w-md mx-4 p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-5">
-              <h2 className="font-medium text-sm">Upload Skill</h2>
+              <h2 className="font-mono text-[11px] tracking-[0.2em] uppercase text-[#ff6600]">Upload Skill</h2>
               <button
                 onClick={() => { setShowImport(false); setUploadFiles([]); setUploadName('') }}
                 className="text-zinc-500 hover:text-zinc-300 text-lg leading-none"
@@ -1149,8 +1249,8 @@ export default function Dashboard() {
               onDragOver={(e) => { e.preventDefault(); setUploadDragOver(true) }}
               onDragLeave={() => setUploadDragOver(false)}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-                uploadDragOver ? 'border-green-500 bg-green-950/20' : 'border-zinc-700 hover:border-zinc-600'
+              className={`border-2 border-dashed rounded-none p-8 text-center transition-colors ${
+                uploadDragOver ? 'border-[#ff6600] bg-[#ff6600]/10' : 'border-[#1c2230] hover:border-[#2a3040]'
               }`}
             >
               {uploadFiles.length === 0 ? (
@@ -1161,13 +1261,13 @@ export default function Dashboard() {
                   <div className="flex gap-2 justify-center">
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg border border-zinc-700/50 transition-colors"
+                      className="bg-transparent hover:bg-[#1c2230] text-[#a8b4c4] text-[11px] px-3 py-1.5 rounded-none border border-[#1c2230] font-mono tracking-wider transition-colors"
                     >
                       Choose Files
                     </button>
                     <button
                       onClick={() => document.getElementById('folder-input')?.click()}
-                      className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs px-3 py-1.5 rounded-lg border border-zinc-700/50 transition-colors"
+                      className="bg-transparent hover:bg-[#1c2230] text-[#a8b4c4] text-[11px] px-3 py-1.5 rounded-none border border-[#1c2230] font-mono tracking-wider transition-colors"
                     >
                       Choose Folder
                     </button>
@@ -1203,13 +1303,13 @@ export default function Dashboard() {
                     value={uploadName}
                     onChange={(e) => setUploadName(e.target.value)}
                     placeholder={uploadFiles[0]?.path.split('/')[0] || 'my-skill'}
-                    className="w-full bg-zinc-800 text-zinc-200 text-sm rounded-lg px-3 py-2 border border-zinc-700/50 outline-none placeholder:text-zinc-600 font-mono"
+                    className="w-full bg-[#06070d] text-[#d8e4f0] text-[11px] rounded-none px-3 py-2 border border-[#1c2230] outline-none placeholder:text-[#2e3848] font-mono"
                   />
                 </div>
                 <button
                   onClick={uploadSkill}
                   disabled={importLoading}
-                  className="w-full bg-green-600 hover:bg-green-500 text-white text-sm py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                  className="w-full bg-[#ff6600]/20 hover:bg-[#ff6600]/30 text-[#ff6600] text-[11px] py-2.5 rounded-none border border-[#ff6600]/50 font-mono tracking-wider transition-colors disabled:opacity-50"
                 >
                   {importLoading ? 'Uploading...' : 'Upload Skill'}
                 </button>
@@ -1219,38 +1319,62 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm mx-4 p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-medium text-sm">Authenticate</h2>
-              <button
-                onClick={() => { setShowAuthModal(false); setAuthKey('') }}
-                className="text-zinc-500 hover:text-zinc-300 text-lg leading-none"
-              >
-                &times;
-              </button>
+      {/* LLM Connect Modal */}
+      {showConnectModal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowConnectModal(false)}>
+          <div className="bg-[#06070d] border border-[#1c2230] w-full max-w-lg mx-4 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="font-mono text-[11px] tracking-[0.2em] uppercase text-[#ff6600]">◈ LLM Connect</h2>
+                <p className="font-mono text-[9px] text-[#2e3848] mt-0.5 tracking-wider">Keys stored as GitHub Actions secrets</p>
+              </div>
+              <button onClick={() => setShowConnectModal(false)} className="text-zinc-600 hover:text-[#a8b4c4] text-lg leading-none transition-colors">&times;</button>
             </div>
-            <p className="text-zinc-500 text-xs mb-4">
-              Paste your API key or OAuth token to enable skill runs on GitHub Actions.
-            </p>
-            <input
-              type="password"
-              value={authKey}
-              onChange={(e) => setAuthKey(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && authKey.trim() && setupAuth(authKey.trim())}
-              placeholder="sk-ant-..."
-              autoFocus
-              className="w-full bg-zinc-800 text-zinc-200 text-sm rounded-lg px-3 py-2 border border-zinc-700/50 outline-none placeholder:text-zinc-600 font-mono mb-4"
-            />
-            <button
-              onClick={() => setupAuth(authKey.trim())}
-              disabled={!authKey.trim() || authLoading}
-              className="w-full bg-green-600 hover:bg-green-500 text-white text-sm py-2.5 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {authLoading ? 'Saving...' : 'Save to GitHub'}
-            </button>
+            <div className="grid grid-cols-1 gap-2">
+              {llmProviders.map(p => (
+                <div key={p.id} className="bg-[#04040a] border border-[#12161e] p-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span style={{ color: p.connected ? '#00ff88' : '#2e3848', fontSize: 8 }}>●</span>
+                      <span className="font-mono text-[11px] tracking-wider" style={{ color: p.connected ? '#d8e4f0' : '#a8b4c4' }}>{p.name.toUpperCase()}</span>
+                      {p.autoDetectable && <span className="font-mono text-[8px] text-[#2e3848] border border-[#12161e] px-1">AUTO</span>}
+                      {p.connected && <span className="font-mono text-[8px] text-[#00ff8860]">connected</span>}
+                    </div>
+                    <button
+                      onClick={() => connectProvider(p.id)}
+                      disabled={!!llmLoading[p.id]}
+                      className="font-mono text-[9px] tracking-wider px-3 py-1 border transition-colors disabled:opacity-40"
+                      style={{ color: p.connected ? '#a8b4c4' : '#ff6600', borderColor: p.connected ? '#1c2230' : '#ff660050', background: p.connected ? 'transparent' : '#ff660010' }}
+                    >
+                      {llmLoading[p.id] ? '...' : p.connected ? 'RECONNECT' : 'CONNECT'}
+                    </button>
+                  </div>
+                  {llmKeyVisible.has(p.id) && (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={llmKeyInputs[p.id] || ''}
+                        onChange={e => setLlmKeyInputs(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        onKeyDown={e => e.key === 'Enter' && (llmKeyInputs[p.id] || '').trim() && connectProvider(p.id, llmKeyInputs[p.id].trim())}
+                        placeholder={p.keyPlaceholder}
+                        autoFocus
+                        className="flex-1 bg-[#06070d] text-[#d8e4f0] text-[10px] rounded-none px-2 py-1.5 border border-[#1c2230] outline-none placeholder:text-[#2e3848] font-mono"
+                      />
+                      <button
+                        onClick={() => connectProvider(p.id, (llmKeyInputs[p.id] || '').trim())}
+                        disabled={!(llmKeyInputs[p.id] || '').trim() || !!llmLoading[p.id]}
+                        className="font-mono text-[9px] px-3 py-1 border border-[#ff660050] text-[#ff6600] bg-[#ff660010] hover:bg-[#ff660020] transition-colors disabled:opacity-40"
+                      >
+                        SAVE
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {llmProviders.length === 0 && (
+                <div className="text-center py-6 font-mono text-[10px] text-[#2e3848]">Loading providers...</div>
+              )}
+            </div>
           </div>
         </div>
       )}
