@@ -1,4 +1,5 @@
 'use client'
+import { apiFetch } from '@/lib/client-auth'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
@@ -456,7 +457,7 @@ function IntelPanel({ onDispatch }: { onDispatch: (skill: string) => void }) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/intel', { cache: 'no-store' })
+      const res = await apiFetch('/api/intel', { cache: 'no-store' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
       setData(json)
@@ -754,6 +755,13 @@ export default function NervPage() {
   const chatHistoryRef = useRef<{ role: 'user' | 'assistant'; content: string }[]>([])
   const chatRef   = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLInputElement>(null)
+  const [voiceActive, setVoiceActive]   = useState(false)
+  const [voiceSpeaking, setVoiceSpeaking] = useState(false)
+  const [ttsEnabled, setTtsEnabled]     = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef  = useRef<any>(null)
+  const prevLoadingRef  = useRef(false)
+
 
   const append = useCallback(async (userContent: string) => {
     const history = chatHistoryRef.current
@@ -762,7 +770,7 @@ export default function NervPage() {
     setAiMessages(prev => [...prev, { id: uid(), role: 'user', content: userContent }, { id: msgId, role: 'assistant', content: '', streaming: true }])
     setIsLoading(true)
     try {
-      const res = await fetch('/api/nerv', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history }) })
+      const res = await apiFetch('/api/nerv', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: history }) })
       if (!res.ok || !res.body) throw new Error(`API ${res.status}`)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -786,11 +794,11 @@ export default function NervPage() {
   }, [])
 
   const fetchSkills = useCallback(async () => {
-    try { const r = await fetch('/api/skills'); const d = await r.json(); if (d.skills) setSkills(d.skills) } catch { /* silent */ }
+    try { const r = await apiFetch('/api/skills'); const d = await r.json(); if (d.skills) setSkills(d.skills) } catch { /* silent */ }
   }, [])
 
   const fetchRuns = useCallback(async () => {
-    try { const r = await fetch('/api/runs'); const d = await r.json(); if (d.runs) setRuns(d.runs) } catch { /* silent */ }
+    try { const r = await apiFetch('/api/runs'); const d = await r.json(); if (d.runs) setRuns(d.runs) } catch { /* silent */ }
   }, [])
 
   useEffect(() => {
@@ -803,6 +811,27 @@ export default function NervPage() {
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
   }, [localMessages, aiMessages])
+
+  useEffect(() => {
+    if (prevLoadingRef.current && !isLoading && ttsEnabled) {
+      const last = aiMessages[aiMessages.length - 1]
+      if (last?.role === 'assistant') {
+        const clean = last.content.replace(/DISPATCH:\{"skill":"[^"]+"\}/g, '').trim()
+        if (clean) {
+          window.speechSynthesis.cancel()
+          const utt = new SpeechSynthesisUtterance(clean)
+          utt.rate = 0.92
+          utt.pitch = 0.85
+          const david = window.speechSynthesis.getVoices().find(v => v.name.includes('David'))
+          if (david) utt.voice = david
+          utt.onend = () => setVoiceSpeaking(false)
+          setVoiceSpeaking(true)
+          window.speechSynthesis.speak(utt)
+        }
+      }
+    }
+    prevLoadingRef.current = isLoading
+  }, [isLoading, aiMessages, ttsEnabled])
 
   const addMsg = useCallback((msg: Omit<Message, 'id' | 'ts'>) => {
     setLocalMessages(prev => [...prev, { ...msg, id: uid(), ts: Date.now() }])
@@ -825,10 +854,8 @@ export default function NervPage() {
     }
   }, [addMsg, fetchRuns])
 
-  const handleSend = useCallback(async () => {
-    const cmd = input.trim()
+  const executeCommand = useCallback(async (cmd: string) => {
     if (!cmd || isLoading) return
-    setInput('')
     if (cmd.toLowerCase() === 'list') {
       addMsg({ role: 'user', text: 'list' })
       addMsg({ role: 'system', text: `ACTIVE AGENTS (${skills.filter(s => s.enabled).length}/${skills.length}):\n\n${skills.map(s => `  ${s.enabled ? '●' : '○'} ${s.name}`).join('\n')}` })
@@ -853,7 +880,44 @@ export default function NervPage() {
     }
     append(cmd)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input, isLoading, skills, runs, addMsg, fetchRuns, append])
+  }, [isLoading, skills, runs, addMsg, fetchRuns, append])
+
+  const handleSend = useCallback(async () => {
+    const cmd = input.trim()
+    if (!cmd) return
+    setInput('')
+    await executeCommand(cmd)
+  }, [input, executeCommand])
+
+  const handleVoiceToggle = useCallback(() => {
+    if (voiceActive) {
+      recognitionRef.current?.stop()
+      setVoiceActive(false)
+      return
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition
+    if (!SR) {
+      addMsg({ role: 'system', text: 'VOICE: Not supported in this browser. Use Chrome.' })
+      return
+    }
+    const rec = new SR()
+    rec.continuous = false
+    rec.interimResults = false
+    rec.lang = 'en-US'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
+      const text = (e.results[0][0].transcript as string).trim()
+      setVoiceActive(false)
+      if (text) executeCommand(text)
+    }
+    rec.onerror = () => setVoiceActive(false)
+    rec.onend = () => setVoiceActive(false)
+    recognitionRef.current = rec
+    rec.start()
+    setVoiceActive(true)
+  }, [voiceActive, addMsg, executeCommand])
 
   const toggleGroup = (g: string) => {
     setCollapsed(prev => { const next = new Set(prev); next.has(g) ? next.delete(g) : next.add(g); return next })
@@ -934,7 +998,7 @@ export default function NervPage() {
 
         <Clock />
 
-        <a href="/" style={{ color: C.textDim, fontSize: 7, letterSpacing: 2, textDecoration: 'none', border: `1px solid ${C.border}`, padding: '2px 8px' }}>◀ DASH</a>
+        <a href="/" style={{ color: C.textDim, fontSize: 8, letterSpacing: 2, textDecoration: 'none', border: `1px solid ${C.borderHi}`, padding: '4px 10px' }}>◀ DASH</a>
       </div>
 
       {/* ── 3-column layout ── */}
@@ -1020,7 +1084,7 @@ export default function NervPage() {
                 ))}
               </div>
               <div style={{ borderTop: `1px solid ${C.border}`, padding: '10px 16px', display: 'flex', gap: 8, alignItems: 'center', background: C.bgPanel, flexShrink: 0 }}>
-                <span style={{ color: C.orange, fontSize: 14 }}>❯</span>
+                <span style={{ color: C.orange, fontSize: 12, letterSpacing: 1 }}>❯</span>
                 <input
                   ref={inputRef}
                   value={input}
@@ -1031,6 +1095,22 @@ export default function NervPage() {
                   style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: C.textBright, fontFamily: 'monospace', fontSize: 12, caretColor: C.orange }}
                   autoFocus
                 />
+                {/* TTS toggle */}
+                <button
+                  onClick={() => { window.speechSynthesis.cancel(); setVoiceSpeaking(false); setTtsEnabled(v => !v) }}
+                  title={ttsEnabled ? 'Disable voice response' : 'Enable voice response'}
+                  style={{ position: 'relative', background: 'transparent', border: `1px solid ${ttsEnabled ? C.blue : C.border}`, color: ttsEnabled ? C.blue : C.textDim, fontFamily: 'monospace', fontSize: 10, cursor: 'pointer', padding: '3px 8px', lineHeight: 1 }}
+                >
+                  {voiceSpeaking ? <span style={{ animation: 'nge-pulse 0.6s infinite' }}>◈</span> : '◈'}
+                </button>
+                {/* Mic button */}
+                <button
+                  onMouseDown={handleVoiceToggle}
+                  title={voiceActive ? 'Stop recording' : 'Hold to speak'}
+                  style={{ position: 'relative', background: voiceActive ? `${C.red}20` : 'transparent', border: `1px solid ${voiceActive ? C.red : C.border}`, color: voiceActive ? C.red : C.textDim, fontFamily: 'monospace', fontSize: 11, cursor: 'pointer', padding: '3px 8px', lineHeight: 1 }}
+                >
+                  {voiceActive ? <span style={{ animation: 'nge-pulse 0.4s infinite' }}>⏺</span> : '🎤'}
+                </button>
                 {aiMessages.length > 0 && (
                   <button onClick={() => { setAiMessages([]); chatHistoryRef.current = []; setLocalMessages([{ id: uid(), role: 'system', text: 'SESSION RESET.', ts: Date.now() }]) }}
                     style={{ background: 'transparent', border: `1px solid ${C.border}`, color: C.textDim, fontFamily: 'monospace', fontSize: 7, letterSpacing: 1, cursor: 'pointer', padding: '3px 8px' }}>↺</button>
