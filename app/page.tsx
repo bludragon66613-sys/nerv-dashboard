@@ -2,39 +2,9 @@
 import { apiFetch } from '@/lib/client-auth'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-
-interface LLMProvider { id: string; name: string; secretName: string; autoDetectable: boolean; keyPlaceholder: string; connected: boolean }
-
-interface Skill {
-  name: string
-  description: string
-  enabled: boolean
-  schedule: string
-  var: string
-}
-
-interface Run {
-  id: number
-  workflow: string
-  status: string
-  conclusion: string | null
-  created_at: string
-  url: string
-}
-
-interface Secret {
-  name: string
-  group: string
-  description: string
-  isSet: boolean
-  either?: string
-}
-
-const MODELS = [
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-]
+import type { Skill, Run, LLMProvider, Secret } from '@/lib/types'
+import { MODELS } from '@/lib/theme'
+import { utcToLocal, localToUtc, getUtcOffsetMinutes, getLocalTzAbbr } from '@/lib/utils'
 
 const DAYS = [
   { label: 'All', value: -1 },
@@ -46,30 +16,6 @@ const DAYS = [
   { label: 'Sat', value: 6 },
   { label: 'Sun', value: 0 },
 ]
-
-// Get the user's UTC offset in minutes (e.g. UTC+5:30 → 330, UTC-5 → -300)
-function getUtcOffsetMinutes(): number {
-  return -(new Date().getTimezoneOffset())
-}
-
-function getLocalTzAbbr(): string {
-  try {
-    return Intl.DateTimeFormat('en-US', { timeZoneName: 'short' }).formatToParts(new Date())
-      .find(p => p.type === 'timeZoneName')?.value || 'Local'
-  } catch {
-    return 'Local'
-  }
-}
-
-function utcToLocal(utcH: number, utcM: number): { h: number; m: number } {
-  const total = ((utcH * 60 + utcM + getUtcOffsetMinutes()) % (24 * 60) + 24 * 60) % (24 * 60)
-  return { h: Math.floor(total / 60), m: total % 60 }
-}
-
-function localToUtc(localH: number, localM: number): { h: number; m: number } {
-  const total = ((localH * 60 + localM - getUtcOffsetMinutes()) % (24 * 60) + 24 * 60) % (24 * 60)
-  return { h: Math.floor(total / 60), m: total % 60 }
-}
 
 function parseCron(cron: string): { mode: 'interval'; value: number; unit: 'm' | 'h' } | { mode: 'time'; hour12: number; minute: number; ampm: 'AM' | 'PM'; days: number[] } {
   const parts = cron.split(' ')
@@ -279,6 +225,42 @@ export default function Dashboard() {
 
   // Import modal
   const [showImport, setShowImport] = useState(false)
+  const [openclawStatus, setOpenclawStatus] = useState<'idle' | 'checking' | 'fixing' | 'ok' | 'fail'>('idle')
+  const [openclawChecks, setOpenclawChecks] = useState<Array<{ name: string; status: string; detail: string }>>([])
+  const [showOpenclawPanel, setShowOpenclawPanel] = useState(false)
+
+  const checkOpenclaw = useCallback(async () => {
+    setOpenclawStatus('checking')
+    try {
+      const res = await apiFetch('/api/openclaw')
+      const data = await res.json()
+      setOpenclawChecks(data.checks)
+      setOpenclawStatus(data.status === 'healthy' ? 'ok' : 'fail')
+      setShowOpenclawPanel(true)
+    } catch {
+      setOpenclawStatus('fail')
+      setOpenclawChecks([{ name: 'Connection', status: 'fail', detail: 'API unreachable' }])
+      setShowOpenclawPanel(true)
+    }
+  }, [])
+
+  const fixOpenclaw = useCallback(async () => {
+    setOpenclawStatus('fixing')
+    try {
+      const res = await apiFetch('/api/openclaw', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setToast('OpenClaw fixed successfully')
+        await checkOpenclaw()
+      } else {
+        setOpenclawStatus('fail')
+        setToast('Fix completed with issues — check panel')
+      }
+    } catch {
+      setOpenclawStatus('fail')
+      setToast('Fix failed — run bash ~/fix-openclaw.sh manually')
+    }
+  }, [checkOpenclaw, setToast])
   const [importLoading, setImportLoading] = useState(false)
   const [uploadFiles, setUploadFiles] = useState<Array<{ path: string; content: string }>>([])
   const [uploadDragOver, setUploadDragOver] = useState(false)
@@ -412,6 +394,11 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-check OpenClaw health on load
+  useEffect(() => {
+    checkOpenclaw()
+  }, [checkOpenclaw])
 
   // --- Skill actions ---
 
@@ -833,6 +820,26 @@ export default function Dashboard() {
             >
               ◈ AGENTS
             </a>
+            <a
+              href="/companies"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: '#22c55e', border: '1px solid #22c55e66', padding: '5px 12px', textDecoration: 'none', background: '#22c55e10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#22c55e22')}
+              onMouseLeave={e => (e.currentTarget.style.background = '#22c55e10')}
+            >
+              ◈ COMPANIES
+            </a>
+            <a
+              href="/openclaw"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, color: openclawStatus === 'ok' ? '#22c55e' : openclawStatus === 'fail' ? '#ef4444' : '#f59e0b', border: `1px solid ${openclawStatus === 'ok' ? '#22c55e66' : openclawStatus === 'fail' ? '#ef444466' : '#f59e0b66'}`, padding: '5px 12px', textDecoration: 'none', background: openclawStatus === 'ok' ? '#22c55e10' : openclawStatus === 'fail' ? '#ef444410' : '#f59e0b10', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = openclawStatus === 'ok' ? '#22c55e22' : openclawStatus === 'fail' ? '#ef444422' : '#f59e0b22')}
+              onMouseLeave={e => (e.currentTarget.style.background = openclawStatus === 'ok' ? '#22c55e10' : openclawStatus === 'fail' ? '#ef444410' : '#f59e0b10')}
+            >
+              ◈ OPENCLAW
+            </a>
             <select
               value={model}
               onChange={(e) => updateModel(e.target.value)}
@@ -940,7 +947,7 @@ export default function Dashboard() {
                       }}
                     />
                     <VarEditor
-                      value={skill.var}
+                      value={skill.var ?? ''}
                       onSave={(v) => updateVar(skill.name, v)}
                     />
                     <div className="px-4 py-2 bg-zinc-900/40 border-b border-zinc-800/30 flex justify-end" onClick={(e) => e.stopPropagation()}>

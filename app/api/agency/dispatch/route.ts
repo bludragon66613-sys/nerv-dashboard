@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
 
     if (dispatchType === 'local') {
       // Dispatch via OpenClaw proxy
-      const prompt = body.activationPrompt || `Activate agent: ${skill}`
+      const prompt = body.activationPrompt || `NERV Command Center — Authorized dispatch from Totoro\n\nActivate agent: ${skill}\n\nComplete your task and report back with a structured summary of your output.`
       const res = await fetch(`${OPENCLAW_PROXY_URL}/dispatch`, {
         method: 'POST',
         headers: {
@@ -126,8 +126,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Runbook not found: scenario-${runbookName}.md` }, { status: 404 })
       }
 
-      // Extract Phase 0 agents — simple heuristic: lines under "Phase 0" heading containing agent names
-      const phase0Match = runbookContent.match(/phase\s*0[:\s\S]*?(?=phase\s*1|##|$)/i)
+      // Extract Phase 0 agents — lines under "## Phase 0" heading containing kebab-case agent names
+      const phase0Match = runbookContent.match(/##\s*phase\s*0[:\s\S]*?(?=\n##|$)/i)
       const phase0Agents: string[] = []
       if (phase0Match) {
         const agentLines = phase0Match[0].match(/[-*]\s+([a-z][a-z0-9-]+)/gi) || []
@@ -137,6 +137,38 @@ export async function POST(req: NextRequest) {
         }
       }
       if (phase0Agents.length === 0) phase0Agents.push(skill)
+
+      // Extract agent role descriptions from the Agent Roster table for richer prompts
+      const agentRoles: Record<string, string> = {}
+      const rosterRows = runbookContent.matchAll(/\|\s*\*?\*?([^|]+?)\*?\*?\s*\|\s*([^|]+?)\s*\|/g)
+      for (const row of rosterRows) {
+        const label = row[1].trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+        const role = row[2].trim()
+        if (label && role && !role.toLowerCase().includes('role') && !role.toLowerCase().includes('---')) {
+          agentRoles[label] = role
+        }
+      }
+
+      // Build authorized prompt for a given agent
+      function buildPhase0Prompt(agentName: string): string {
+        const role = agentRoles[agentName] || agentRoles[agentName.replace(/-/g, '')] || ''
+        const roleContext = role ? `Your role in this scenario: ${role}` : ''
+        return [
+          `NERV Command Center — Authorized dispatch from Totoro`,
+          ``,
+          `Scenario: ${runbookName}`,
+          `Phase: 0 (Kickoff)`,
+          `Agent: ${agentName}`,
+          roleContext,
+          ``,
+          `You are being activated as part of a coordinated multi-agent scenario kickoff.`,
+          `Review the scenario name and your role, then complete your Phase 0 responsibilities.`,
+          `Deliver your output as a structured report back via this channel.`,
+          ``,
+          `Phase 0 context:`,
+          (phase0Match?.[0] || '').slice(0, 800).trim(),
+        ].filter(Boolean).join('\n')
+      }
 
       // Write parent job
       const parentJob = { ...job, status: 'running' as const }
@@ -161,10 +193,17 @@ export async function POST(req: NextRequest) {
         fetch(`${OPENCLAW_PROXY_URL}/dispatch`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${OPENCLAW_PROXY_SECRET}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agent: agentSkill, prompt: `Execute Phase 0 task for scenario: ${runbookName}` }),
+          body: JSON.stringify({ agent: agentSkill, prompt: buildPhase0Prompt(agentSkill) }),
         }).then(async r => {
           const d = await r.json().catch(() => ({}))
-          await wJob({ ...child, status: r.ok ? 'completed' : 'failed:unknown', output: String(d.result || '').slice(0, 2000), completed_at: new Date().toISOString() })
+          const childStatus = r.ok ? 'completed' : 'failed:unknown'
+          await wJob({
+            ...child,
+            status: childStatus,
+            output: (typeof d.result === 'object' ? JSON.stringify(d.result) : String(d.result || '')).slice(0, 2000),
+            error: !r.ok ? (String(d.error || d.message || JSON.stringify(d)).slice(0, 500) || `HTTP ${r.status}`) : undefined,
+            completed_at: new Date().toISOString(),
+          })
         }).catch(async err => {
           await wJob({ ...child, status: 'failed:unknown', error: String(err), completed_at: new Date().toISOString() })
         })

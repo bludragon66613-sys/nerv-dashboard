@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { createFile, getFileContent, updateFile } from '@/lib/github'
+import path from 'path'
 
 function detectSecretsFromContent(content: string): string[] {
   const matches = new Set<string>()
@@ -86,7 +88,8 @@ function deriveSkillName(files: Array<{ path: string; content: string }>): { nam
   return { name: fmName, prefix: '' }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   try {
     const body = await request.json()
     const files = body.files as Array<{ path: string; content: string }>
@@ -125,6 +128,10 @@ export async function POST(request: Request) {
 
       // Skip empty paths or directory-only entries
       if (!relativePath || relativePath.endsWith('/')) continue
+
+      // Prevent path traversal — reject any path that escapes the skill directory
+      const normalized = path.posix.normalize(relativePath)
+      if (normalized.startsWith('..') || path.posix.isAbsolute(normalized)) continue
 
       // Rename .skill files to SKILL.md so the system can find them
       if (relativePath.toLowerCase().endsWith('.skill')) {

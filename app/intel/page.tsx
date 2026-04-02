@@ -1,112 +1,9 @@
 'use client'
+import { apiFetch } from '@/lib/client-auth'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface RiskParams {
-  entry_zone: [number, number]
-  stop: number
-  target1: number
-  target2: number
-  stop_pct: number
-  target1_pct: number
-  target2_pct: number
-  risk_reward: number
-}
-
-interface Strategy {
-  coin: string
-  direction: 'LONG' | 'SHORT'
-  score: number
-  conviction: 'HIGH' | 'MEDIUM' | 'LOW'
-  reasons: string[]
-  signals: string[]
-  funding_apr: number
-  source: string
-  mark_px: number
-  oi_usd_m: number
-  whale_agreement?: string
-  whale_names?: string[]
-  note?: string
-  risk_params?: RiskParams
-}
-
-interface ConsensusItem {
-  direction: 'LONG' | 'SHORT'
-  aligned_count: number
-  total_traders: number
-  agreement_pct: number
-  total_notional: number
-  avg_entry: number
-  traders: string[]
-  conviction: 'HIGH' | 'MEDIUM' | 'LOW'
-}
-
-interface IntelData {
-  generated_at: string
-  elapsed_sec: number
-  strategies: Strategy[]
-  macro: {
-    fear_greed: { value: number; classification: string; trend: string; yesterday: number; signal: string }
-    btc_metrics: { btc_price: number; btc_24h_pct: number; btc_7d_pct: number; btc_30d_pct: number; eth_btc_ratio: number; market_regime: string; alt_season: boolean }
-    global: { btc_dominance_pct: number; total_market_cap_usd: number; market_cap_change_24h: number }
-    derived: { overall_bias: string; bias_note: string; dom_signal: string }
-    trending: Array<{ symbol: string }>
-  }
-  market_scan: {
-    total_markets: number
-    extreme_funding: Array<{ coin: string; funding_apr_pct: number; oi_usd_m: number; change_24h_pct: number }>
-    volume_spikes: Array<{ coin: string; vol_oi_ratio: number; volume_24h_m: number; change_24h_pct: number }>
-    top_movers_24h: Array<{ coin: string; change_24h_pct: number; mark_px: number }>
-  }
-  leaderboard: {
-    consensus_alltime: Record<string, ConsensusItem>
-    top_traders: Array<{
-      display: string
-      all_time: { pnl: number }
-      month: { pnl: number }
-      trade_stats: { win_rate: number | null }
-      positions: unknown[]
-    }>
-  }
-  summary: {
-    market_regime: string
-    macro_bias: string
-    fear_greed: number
-    fear_greed_cls: string
-    btc_price: number
-    btc_dominance: number
-    alt_season: boolean
-    top_strategies: string[]
-    high_conviction_count: number
-    total_markets_scanned: number
-    traders_analysed: number
-  }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const fmtPrice = (n: number) => {
-  if (n >= 1000) return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-  if (n >= 1) return `$${n.toFixed(3)}`
-  return `$${n.toFixed(6)}`
-}
-
-const fmtM = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}B` : `$${n.toFixed(1)}M`
-const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
-
-const fgColor = (v: number) => {
-  if (v <= 20) return '#ef4444'
-  if (v <= 35) return '#f97316'
-  if (v <= 55) return '#eab308'
-  if (v <= 75) return '#22c55e'
-  return '#10b981'
-}
-
-const biasColor = (b: string) => b === 'RISK_ON' ? '#22c55e' : b === 'RISK_OFF' ? '#ef4444' : '#f59e0b'
-const dirColor = (d: string) => d === 'LONG' ? '#22c55e' : '#ef4444'
-const convColor = (c: string) => c === 'HIGH' ? '#ef4444' : c === 'MEDIUM' ? '#f59e0b' : '#6b7280'
+import type { RiskParams, Strategy, ConsensusItem, IntelData } from '@/lib/types'
+import { fmtPrice, fmtM, pct, fgColor, biasColor, dirColor, convColor } from '@/lib/utils'
 
 // ── Fear/Greed Arc Gauge ─────────────────────────────────────────────────────
 
@@ -401,7 +298,7 @@ export default function IntelPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await window.fetch('/api/intel', { cache: 'no-store' })
+      const res = await apiFetch('/api/intel', { cache: 'no-store' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`)
       setData(json)

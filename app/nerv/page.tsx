@@ -2,97 +2,13 @@
 import { apiFetch } from '@/lib/client-auth'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import type { Skill, Run, RiskParams, Strategy, ConsensusItem, IntelData } from '@/lib/types'
+import { C, SKILL_GROUPS, GROUP_COLORS } from '@/lib/theme'
+import { fmtPrice, fmtM, pct, fgColor, biasColor, dirColor, convColor, timeAgo, runStatusColor, runStatusLabel, getGroup, uid } from '@/lib/utils'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-interface Skill { name: string; description: string; enabled: boolean; schedule: string }
-interface Run { id: number; workflow: string; status: string; conclusion: string | null; created_at: string; url: string }
 interface Message { id: string; role: 'user' | 'system' | 'agent' | 'claude'; text: string; skill?: string; streaming?: boolean; ts: number }
-
-interface RiskParams {
-  entry_zone: [number, number]; stop: number; target1: number; target2: number
-  stop_pct: number; target1_pct: number; target2_pct: number; risk_reward: number
-}
-interface Strategy {
-  coin: string; direction: 'LONG' | 'SHORT'; score: number; conviction: 'HIGH' | 'MEDIUM' | 'LOW'
-  reasons: string[]; signals: string[]; funding_apr: number; source: string
-  mark_px: number; oi_usd_m: number; whale_agreement?: string; whale_names?: string[]
-  note?: string; risk_params?: RiskParams
-}
-interface ConsensusItem {
-  direction: 'LONG' | 'SHORT'; aligned_count: number; total_traders: number
-  agreement_pct: number; total_notional: number; avg_entry: number
-  traders: string[]; conviction: 'HIGH' | 'MEDIUM' | 'LOW'
-}
-interface IntelData {
-  generated_at: string; elapsed_sec: number; strategies: Strategy[]
-  macro: {
-    fear_greed: { value: number; classification: string; trend: string; yesterday: number; signal: string }
-    btc_metrics: { btc_price: number; btc_24h_pct: number; btc_7d_pct: number; btc_30d_pct: number; eth_btc_ratio: number; market_regime: string; alt_season: boolean }
-    global: { btc_dominance_pct: number; total_market_cap_usd: number; market_cap_change_24h: number }
-    derived: { overall_bias: string; bias_note: string; dom_signal: string }
-    trending: Array<{ symbol: string }>
-  }
-  market_scan: {
-    total_markets: number
-    extreme_funding: Array<{ coin: string; funding_apr_pct: number; oi_usd_m: number; change_24h_pct: number }>
-    volume_spikes: Array<{ coin: string; vol_oi_ratio: number; volume_24h_m: number; change_24h_pct: number }>
-    top_movers_24h: Array<{ coin: string; change_24h_pct: number; mark_px: number }>
-  }
-  leaderboard: {
-    consensus_alltime: Record<string, ConsensusItem>
-    top_traders: Array<{ display: string; all_time: { pnl: number }; month: { pnl: number }; trade_stats: { win_rate: number | null }; positions: unknown[] }>
-  }
-  summary: {
-    market_regime: string; macro_bias: string; fear_greed: number; fear_greed_cls: string
-    btc_price: number; btc_dominance: number; alt_season: boolean; top_strategies: string[]
-    high_conviction_count: number; total_markets_scanned: number; traders_analysed: number
-  }
-}
-
-// ─── DESIGN SYSTEM ────────────────────────────────────────────────────────────
-
-const C = {
-  bg:         '#04040a',
-  bgPanel:    '#06070d',
-  bgDeep:     '#020206',
-  border:     '#12161e',
-  borderHi:   '#1c2230',
-  orange:     '#ff6600',
-  orangeDim:  '#7a3200',
-  red:        '#cc0000',
-  redBright:  '#ff1100',
-  green:      '#00ff88',
-  blue:       '#0088ff',
-  amber:      '#ffaa00',
-  yellow:     '#ffcc00',
-  text:       '#a8b4c4',
-  textDim:    '#2e3848',
-  textBright: '#d8e4f0',
-  textMuted:  '#181e28',
-}
-
-// ─── CONSTANTS ────────────────────────────────────────────────────────────────
-
-const SKILL_GROUPS: Record<string, string[]> = {
-  HYPERLIQUID: ['hl-intel', 'hl-scan', 'hl-monitor', 'hl-alpha', 'hl-report', 'hl-trade'],
-  INTEL:       ['morning-brief', 'rss-digest', 'hacker-news-digest', 'paper-digest', 'tweet-digest'],
-  OPERATIONS:  ['issue-triage', 'pr-review', 'github-monitor'],
-  FINANCIAL:   ['token-alert', 'wallet-digest', 'on-chain-monitor', 'defi-monitor'],
-  CREATIVE:    ['article', 'digest', 'feature'],
-  MAINTENANCE: ['code-health', 'changelog', 'build-skill'],
-  META:        ['goal-tracker', 'skill-health', 'self-review', 'reflect', 'memory-flush', 'weekly-review', 'heartbeat'],
-}
-
-const GROUP_COLORS: Record<string, string> = {
-  HYPERLIQUID: '#cc0000',
-  INTEL:       '#0088ff',
-  OPERATIONS:  '#ff6600',
-  FINANCIAL:   '#ffaa00',
-  CREATIVE:    '#aa44ff',
-  MAINTENANCE: '#00ff88',
-  META:        '#ff2244',
-}
 
 // Fixed cascade content — avoids SSR hydration mismatch
 const CASCADE_ROWS = [
@@ -106,54 +22,6 @@ const CASCADE_ROWS = [
   '47A0','1EB3','F962','8C05','3D71','B240','0A9E','E61C','52F8','9D34',
 ]
 const CASCADE_CONTENT = CASCADE_ROWS.join('\n')
-
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-
-function uid() { return Math.random().toString(36).slice(2, 10) }
-
-function getGroup(name: string): string {
-  for (const [g, skills] of Object.entries(SKILL_GROUPS)) {
-    if (skills.includes(name)) return g
-  }
-  return 'META'
-}
-
-function runStatusColor(status: string, conclusion: string | null): string {
-  if (status === 'in_progress') return C.orange
-  if (conclusion === 'success') return C.green
-  if (conclusion === 'failure') return C.red
-  if (status === 'queued') return C.yellow
-  return C.textDim
-}
-
-function runStatusLabel(status: string, conclusion: string | null): string {
-  if (status === 'in_progress') return 'RUNNING'
-  if (status === 'queued') return 'QUEUED'
-  if (conclusion === 'success') return 'SUCCESS'
-  if (conclusion === 'failure') return 'FAILURE'
-  if (conclusion === 'cancelled') return 'CANCELLED'
-  return status.toUpperCase()
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
-}
-
-// Intel helpers
-const fmtPrice = (n: number) =>
-  n >= 1000 ? `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : n >= 1 ? `$${n.toFixed(3)}` : `$${n.toFixed(6)}`
-const fmtM = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}B` : `$${n.toFixed(1)}M`
-const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
-const fgColor = (v: number) => v <= 20 ? '#ff1100' : v <= 35 ? '#ff6600' : v <= 55 ? '#ffaa00' : v <= 75 ? '#00ff88' : '#00cc66'
-const biasColor = (b: string) => b === 'RISK_ON' ? '#00ff88' : b === 'RISK_OFF' ? '#cc0000' : '#ffaa00'
-const dirColor = (d: string) => d === 'LONG' ? '#00ff88' : '#cc0000'
-const convColor = (c: string) => c === 'HIGH' ? '#cc0000' : c === 'MEDIUM' ? '#ffaa00' : '#2e3848'
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 
@@ -216,7 +84,7 @@ function MessageBubble({ msg }: { msg: Message }) {
     )
   }
   if (msg.role === 'agent') {
-    const group = msg.skill ? getGroup(msg.skill) : 'META'
+    const group = msg.skill ? getGroup(msg.skill, SKILL_GROUPS) : 'META'
     const color = GROUP_COLORS[group] || C.orange
     return (
       <div style={{ animation: 'nge-fadein 0.2s ease' }}>
@@ -237,7 +105,7 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 function RunCard({ run }: { run: Run }) {
-  const color = runStatusColor(run.status, run.conclusion)
+  const color = runStatusColor(run.status, run.conclusion, C)
   const isActive = run.status === 'in_progress'
   return (
     <a href={run.url} target="_blank" rel="noreferrer"
@@ -735,9 +603,238 @@ function IntelPanel({ onDispatch }: { onDispatch: (skill: string) => void }) {
   )
 }
 
+// ─── WORKFLOW PANEL ──────────────────────────────────────────────────────────
+
+interface WfTemplate { id: string; name: string; description?: string; nodeCount: number; nodes: Array<{ id: string; skill: string; dependsOn: string[] }> }
+interface WfRunNode { id: string; nodeId: string; skill: string; status: string; attempt: number; error?: string }
+interface WfRun { id: string; workflowId: string; name: string; status: string; createdAt: string; nodes: WfRunNode[]; scratchboard: Record<string, unknown>; progress?: { total: number; completed: number; failed: number; running: number; pending: number; percent: number } }
+
+function WorkflowPanel() {
+  const [templates, setTemplates] = useState<WfTemplate[]>([])
+  const [runs, setRuns] = useState<WfRun[]>([])
+  const [selected, setSelected] = useState<WfTemplate | null>(null)
+  const [activeRun, setActiveRun] = useState<WfRun | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/workflows')
+      const data = await res.json()
+      setTemplates(data.templates || [])
+      setRuns(data.runs || [])
+    } catch { /* silent */ }
+  }, [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  const startWorkflow = async (id: string) => {
+    setLoading(true)
+    try {
+      const res = await apiFetch('/api/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workflowId: id }) })
+      const data = await res.json()
+      if (data.runId) {
+        await fetchData()
+        const runRes = await apiFetch(`/api/workflows/${data.runId}`)
+        setActiveRun(await runRes.json())
+      }
+    } catch { /* silent */ }
+    setLoading(false)
+  }
+
+  const refreshRun = async (runId: string) => {
+    try {
+      const res = await apiFetch(`/api/workflows/${runId}`)
+      setActiveRun(await res.json())
+    } catch { /* silent */ }
+  }
+
+  const cancelRun = async (runId: string) => {
+    try {
+      await apiFetch(`/api/workflows/${runId}`, { method: 'DELETE' })
+      setActiveRun(null)
+      await fetchData()
+    } catch { /* silent */ }
+  }
+
+  // Status colors
+  const sc = (s: string) => s === 'completed' ? C.green : s === 'running' ? C.orange : s === 'failed' ? C.red : s === 'pending' ? C.textDim : C.amber
+
+  return (
+    <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      {/* LEFT: Templates & runs */}
+      <div style={{ width: 280, borderRight: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <PanelLabel text="WORKFLOW TEMPLATES" sub={`${templates.length} PIPELINES`} color={C.cyan} />
+        <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {templates.map(t => (
+            <div key={t.id}
+              onClick={() => setSelected(selected?.id === t.id ? null : t)}
+              style={{ padding: '8px 10px', background: selected?.id === t.id ? `${C.cyan}12` : `${C.border}18`, border: `1px solid ${selected?.id === t.id ? `${C.cyan}50` : C.border}`, cursor: 'pointer', position: 'relative' }}
+            >
+              <Brackets size={4} color={C.cyan} />
+              <div style={{ fontFamily: 'monospace', fontSize: 9, color: C.textBright, letterSpacing: 1, fontWeight: 700 }}>{t.name}</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 7, color: C.textDim, marginTop: 2 }}>{t.nodeCount} NODES · {t.id.toUpperCase()}</div>
+              {t.description && <div style={{ fontFamily: 'monospace', fontSize: 7, color: C.text, marginTop: 3, lineHeight: 1.4 }}>{t.description}</div>}
+            </div>
+          ))}
+
+          {/* Runs list */}
+          {runs.length > 0 && (
+            <>
+              <div style={{ fontFamily: 'monospace', fontSize: 7, letterSpacing: 2, color: C.textDim, marginTop: 8, paddingLeft: 4 }}>RECENT RUNS</div>
+              {runs.slice(0, 10).map(r => (
+                <div key={r.id}
+                  onClick={() => refreshRun(r.id)}
+                  style={{ padding: '6px 10px', background: activeRun?.id === r.id ? `${sc(r.status)}12` : 'transparent', border: `1px solid ${activeRun?.id === r.id ? `${sc(r.status)}40` : C.border}`, cursor: 'pointer' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: sc(r.status), boxShadow: `0 0 4px ${sc(r.status)}` }} />
+                    <span style={{ fontFamily: 'monospace', fontSize: 8, color: C.textBright }}>{r.name}</span>
+                  </div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 6, color: C.textDim, marginTop: 2, paddingLeft: 11 }}>
+                    {r.status.toUpperCase()} · {new Date(r.createdAt).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Launch button */}
+        {selected && (
+          <div style={{ borderTop: `1px solid ${C.border}`, padding: 8 }}>
+            <button
+              onClick={() => startWorkflow(selected.id)}
+              disabled={loading}
+              style={{ width: '100%', padding: '6px 12px', background: loading ? 'transparent' : `${C.cyan}20`, border: `1px solid ${loading ? C.border : C.cyan}`, color: loading ? C.textDim : C.cyan, fontFamily: 'monospace', fontSize: 8, letterSpacing: 2, cursor: loading ? 'not-allowed' : 'pointer' }}
+            >
+              {loading ? 'DISPATCHING...' : `▶ LAUNCH ${selected.id.toUpperCase()}`}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* RIGHT: DAG visualization & run detail */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {activeRun ? (
+          <>
+            {/* Run header */}
+            <div style={{ padding: '8px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: sc(activeRun.status), boxShadow: `0 0 6px ${sc(activeRun.status)}`, animation: activeRun.status === 'running' ? 'nge-pulse 1s infinite' : 'none' }} />
+              <span style={{ fontFamily: 'monospace', fontSize: 9, color: C.textBright, letterSpacing: 1, fontWeight: 700 }}>{activeRun.name}</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 7, color: sc(activeRun.status), letterSpacing: 2 }}>{activeRun.status.toUpperCase()}</span>
+              {activeRun.progress && (
+                <span style={{ fontFamily: 'monospace', fontSize: 7, color: C.textDim }}>{activeRun.progress.percent}% ({activeRun.progress.completed}/{activeRun.progress.total})</span>
+              )}
+              <span style={{ flex: 1 }} />
+              {activeRun.status === 'running' && (
+                <button onClick={() => cancelRun(activeRun.id)} style={{ padding: '2px 8px', background: `${C.red}20`, border: `1px solid ${C.red}50`, color: C.red, fontFamily: 'monospace', fontSize: 7, letterSpacing: 1, cursor: 'pointer' }}>ABORT</button>
+              )}
+              <button onClick={() => refreshRun(activeRun.id)} style={{ padding: '2px 8px', background: 'transparent', border: `1px solid ${C.border}`, color: C.textDim, fontFamily: 'monospace', fontSize: 7, letterSpacing: 1, cursor: 'pointer' }}>↻</button>
+              <button onClick={() => setActiveRun(null)} style={{ padding: '2px 8px', background: 'transparent', border: `1px solid ${C.border}`, color: C.textDim, fontFamily: 'monospace', fontSize: 7, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            {/* Node list as DAG */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {activeRun.nodes.map(node => (
+                  <div key={node.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: `${sc(node.status)}08`, border: `1px solid ${sc(node.status)}30`, position: 'relative' }}>
+                    <Brackets size={4} color={sc(node.status)} />
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sc(node.status), boxShadow: `0 0 5px ${sc(node.status)}`, flexShrink: 0, animation: node.status === 'running' ? 'nge-pulse 0.8s infinite' : 'none' }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: 9, color: C.textBright, letterSpacing: 1 }}>{node.skill.toUpperCase()}</div>
+                      <div style={{ fontFamily: 'monospace', fontSize: 7, color: C.textDim, marginTop: 1 }}>
+                        {node.nodeId} · attempt {node.attempt} · {node.status.toUpperCase()}
+                      </div>
+                      {node.error && <div style={{ fontFamily: 'monospace', fontSize: 7, color: C.red, marginTop: 2 }}>ERR: {node.error}</div>}
+                    </div>
+                    <span style={{ fontFamily: 'monospace', fontSize: 7, color: sc(node.status), letterSpacing: 2 }}>{node.status === 'completed' ? '✓' : node.status === 'failed' ? '✗' : node.status === 'running' ? '▶' : '○'}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Scratchboard preview */}
+              {activeRun.scratchboard && Object.keys(activeRun.scratchboard).filter(k => !k.startsWith('_')).length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: 7, letterSpacing: 2, color: C.cyan, marginBottom: 6 }}>SCRATCHBOARD</div>
+                  <div style={{ padding: '8px 12px', background: `${C.cyan}08`, border: `1px solid ${C.cyan}30`, fontFamily: 'monospace', fontSize: 8, color: C.text, whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 200, overflowY: 'auto' }}>
+                    {Object.entries(activeRun.scratchboard).filter(([k]) => !k.startsWith('_')).map(([k, v]) => (
+                      <div key={k}><span style={{ color: C.cyan }}>{k}:</span> {typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        ) : selected ? (
+          /* Template preview — DAG visualization */
+          <div style={{ flex: 1, padding: 20, overflowY: 'auto' }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: C.textBright, letterSpacing: 2, marginBottom: 4 }}>{selected.name.toUpperCase()}</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 8, color: C.textDim, marginBottom: 16 }}>{selected.description}</div>
+
+            {/* Simple DAG layout */}
+            <div style={{ fontFamily: 'monospace', fontSize: 7, letterSpacing: 2, color: C.cyan, marginBottom: 8 }}>EXECUTION GRAPH</div>
+            {(() => {
+              // Group nodes into waves by dependency depth
+              const depth: Record<string, number> = {}
+              const getDepth = (id: string): number => {
+                if (depth[id] !== undefined) return depth[id]
+                const node = selected.nodes.find(n => n.id === id)
+                if (!node || node.dependsOn.length === 0) { depth[id] = 0; return 0 }
+                depth[id] = 1 + Math.max(...node.dependsOn.map(getDepth))
+                return depth[id]
+              }
+              selected.nodes.forEach(n => getDepth(n.id))
+              const maxD = Math.max(...Object.values(depth), 0)
+              const waves: typeof selected.nodes[] = Array.from({ length: maxD + 1 }, () => [])
+              selected.nodes.forEach(n => waves[depth[n.id]].push(n))
+
+              return waves.map((wave, wi) => (
+                <div key={wi}>
+                  <div style={{ fontFamily: 'monospace', fontSize: 6, color: C.textDim, letterSpacing: 2, marginBottom: 4 }}>WAVE {wi} {wi === 0 ? '(PARALLEL)' : ''}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {wave.map(n => {
+                      const group = Object.entries({
+                        HYPERLIQUID: ['hl-intel','hl-scan','hl-monitor','hl-alpha','hl-report','hl-trade'],
+                        INTEL: ['morning-brief','rss-digest','hacker-news-digest','paper-digest','tweet-digest'],
+                        OPERATIONS: ['issue-triage','pr-review','github-monitor'],
+                        FINANCIAL: ['token-alert','wallet-digest','on-chain-monitor','defi-monitor'],
+                        META: ['goal-tracker','skill-health','self-review','reflect','memory-flush','weekly-review','heartbeat'],
+                      }).find(([, skills]) => skills.includes(n.skill))?.[0] || 'CREATIVE'
+                      const gc: Record<string, string> = { HYPERLIQUID: C.red, INTEL: C.blue, OPERATIONS: C.orange, FINANCIAL: C.amber, CREATIVE: C.purple, META: '#ff2244' }
+                      const color = gc[group] || C.cyan
+                      return (
+                        <div key={n.id} style={{ padding: '6px 10px', background: `${color}10`, border: `1px solid ${color}40`, position: 'relative', minWidth: 100 }}>
+                          <Brackets size={3} color={color} />
+                          <div style={{ fontFamily: 'monospace', fontSize: 8, color: C.textBright, letterSpacing: 1 }}>{n.skill.toUpperCase()}</div>
+                          <div style={{ fontFamily: 'monospace', fontSize: 6, color: C.textDim, marginTop: 1 }}>
+                            {n.dependsOn.length > 0 ? `← ${n.dependsOn.join(', ')}` : 'ROOT'}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {wi < maxD && (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 6px', color: C.textDim, fontSize: 10 }}>│</div>
+                  )}
+                </div>
+              ))
+            })()}
+          </div>
+        ) : (
+          /* Empty state */
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 10, color: C.textDim, letterSpacing: 3 }}>SELECT A WORKFLOW</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 7, color: C.textMuted, letterSpacing: 1 }}>CHOOSE A TEMPLATE OR VIEW A RECENT RUN</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 
-type CenterMode = 'terminal' | 'intel'
+type CenterMode = 'terminal' | 'intel' | 'workflows'
 
 export default function NervPage() {
   const [skills, setSkills]             = useState<Skill[]>([])
@@ -760,6 +857,7 @@ export default function NervPage() {
   const [ttsEnabled, setTtsEnabled]     = useState(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef  = useRef<any>(null)
+  const isHoldingRef    = useRef(false)
   const prevLoadingRef  = useRef(false)
 
 
@@ -889,12 +987,8 @@ export default function NervPage() {
     await executeCommand(cmd)
   }, [input, executeCommand])
 
-  const handleVoiceToggle = useCallback(() => {
-    if (voiceActive) {
-      recognitionRef.current?.stop()
-      setVoiceActive(false)
-      return
-    }
+  const handleVoiceStart = useCallback(async () => {
+    if (isHoldingRef.current) return
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const w = window as any
     const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition
@@ -902,22 +996,49 @@ export default function NervPage() {
       addMsg({ role: 'system', text: 'VOICE: Not supported in this browser. Use Chrome.' })
       return
     }
+    // Explicitly request mic — forces Chrome to re-evaluate permission
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+    } catch {
+      addMsg({ role: 'system', text: 'VOICE: Mic access denied. Go to chrome://settings/content/microphone and allow localhost:5555, then reload.' })
+      return
+    }
+    isHoldingRef.current = true
     const rec = new SR()
-    rec.continuous = false
+    rec.continuous = true
     rec.interimResults = false
     rec.lang = 'en-US'
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (e: any) => {
-      const text = (e.results[0][0].transcript as string).trim()
-      setVoiceActive(false)
-      if (text) executeCommand(text)
+      const results = Array.from(e.results as SpeechRecognitionResultList)
+      const text = results.map((r: SpeechRecognitionResult) => r[0].transcript).join(' ').trim()
+      if (text) {
+        recognitionRef.current?.stop()
+        isHoldingRef.current = false
+        setVoiceActive(false)
+        executeCommand(text)
+      }
     }
-    rec.onerror = () => setVoiceActive(false)
-    rec.onend = () => setVoiceActive(false)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onerror = (e: any) => {
+      isHoldingRef.current = false
+      setVoiceActive(false)
+      if (e.error === 'not-allowed') addMsg({ role: 'system', text: 'VOICE: Mic blocked. Allow microphone in browser settings and reload.' })
+      else if (e.error === 'no-speech') addMsg({ role: 'system', text: 'VOICE: No speech detected. Try again.' })
+    }
+    rec.onend = () => { if (!isHoldingRef.current) setVoiceActive(false) }
     recognitionRef.current = rec
     rec.start()
     setVoiceActive(true)
-  }, [voiceActive, addMsg, executeCommand])
+  }, [addMsg, executeCommand])
+
+  const handleVoiceStop = useCallback(() => {
+    if (!isHoldingRef.current) return
+    isHoldingRef.current = false
+    recognitionRef.current?.stop()
+    setVoiceActive(false)
+  }, [])
 
   const toggleGroup = (g: string) => {
     setCollapsed(prev => { const next = new Set(prev); next.has(g) ? next.delete(g) : next.add(g); return next })
@@ -1029,7 +1150,7 @@ export default function NervPage() {
                         onMouseEnter={e => { if (!isLoading) (e.currentTarget as HTMLElement).style.background = `${color}0d` }}
                         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isActive ? `${color}15` : 'transparent' }}
                       >
-                        <span style={{ width: 4, height: 4, borderRadius: '50%', flexShrink: 0, background: recentRun ? runStatusColor(recentRun.status, recentRun.conclusion) : skill.enabled ? `${color}88` : C.textDim, boxShadow: recentRun?.status === 'in_progress' ? `0 0 6px ${C.orange}` : 'none' }} />
+                        <span style={{ width: 4, height: 4, borderRadius: '50%', flexShrink: 0, background: recentRun ? runStatusColor(recentRun.status, recentRun.conclusion, C) : skill.enabled ? `${color}88` : C.textDim, boxShadow: recentRun?.status === 'in_progress' ? `0 0 6px ${C.orange}` : 'none' }} />
                         <span style={{ color: isActive ? color : C.text, fontSize: 9, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{skill.name}</span>
                         {isActive && <span style={{ color, fontSize: 8, animation: 'nge-blink 0.8s infinite' }}>▶</span>}
                       </button>
@@ -1052,6 +1173,7 @@ export default function NervPage() {
             {([
               { mode: 'terminal' as const, label: '◈ COMMAND', sub: 'MAGI INTERFACE' },
               { mode: 'intel' as const,    label: '◈ HL INTEL', sub: 'INTELLIGENCE' },
+              { mode: 'workflows' as const, label: '◈ WORKFLOWS', sub: 'DAG PIPELINES' },
             ]).map(({ mode, label, sub }) => {
               const active = centerMode === mode
               return (
@@ -1063,7 +1185,7 @@ export default function NervPage() {
             })}
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 14 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 6, color: C.textMuted, letterSpacing: 2 }}>
-                {centerMode === 'terminal' ? 'TYPE · DISPATCH · MONITOR' : 'HYPERLIQUID MARKET INTELLIGENCE'}
+                {centerMode === 'terminal' ? 'TYPE · DISPATCH · MONITOR' : centerMode === 'intel' ? 'HYPERLIQUID MARKET INTELLIGENCE' : 'AGENTFLOW DAG ORCHESTRATION'}
               </span>
             </div>
           </div>
@@ -1105,11 +1227,13 @@ export default function NervPage() {
                 </button>
                 {/* Mic button */}
                 <button
-                  onMouseDown={handleVoiceToggle}
-                  title={voiceActive ? 'Stop recording' : 'Hold to speak'}
-                  style={{ position: 'relative', background: voiceActive ? `${C.red}20` : 'transparent', border: `1px solid ${voiceActive ? C.red : C.border}`, color: voiceActive ? C.red : C.textDim, fontFamily: 'monospace', fontSize: 11, cursor: 'pointer', padding: '3px 8px', lineHeight: 1 }}
+                  onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); handleVoiceStart() }}
+                  onPointerUp={e => { e.currentTarget.releasePointerCapture(e.pointerId); handleVoiceStop() }}
+                  onPointerCancel={handleVoiceStop}
+                  title={voiceActive ? 'Release to send' : 'Hold to speak'}
+                  style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, flexShrink: 0, background: voiceActive ? `${C.red}30` : `${C.border}18`, border: `2px solid ${voiceActive ? C.red : C.textDim}`, borderRadius: '50%', color: voiceActive ? C.red : C.textBright, fontSize: 16, cursor: 'pointer', userSelect: 'none', touchAction: 'none', transition: 'border-color 0.1s, background 0.1s' }}
                 >
-                  {voiceActive ? <span style={{ animation: 'nge-pulse 0.4s infinite' }}>⏺</span> : '🎤'}
+                  {voiceActive ? <span style={{ animation: 'nge-pulse 0.4s infinite', fontSize: 14 }}>⏺</span> : '🎤'}
                 </button>
                 {aiMessages.length > 0 && (
                   <button onClick={() => { setAiMessages([]); chatHistoryRef.current = []; setLocalMessages([{ id: uid(), role: 'system', text: 'SESSION RESET.', ts: Date.now() }]) }}
@@ -1125,6 +1249,9 @@ export default function NervPage() {
 
           {/* INTEL MODE */}
           {centerMode === 'intel' && <IntelPanel onDispatch={runSkill} />}
+
+          {/* WORKFLOW MODE */}
+          {centerMode === 'workflows' && <WorkflowPanel />}
         </div>
 
         {/* RIGHT: Mission status */}

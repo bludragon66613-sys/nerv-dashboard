@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { execSync } from 'child_process'
 import { resolve } from 'path'
 import { getFileContent, getDirectory, updateFile, deleteDirectory } from '@/lib/github'
@@ -55,7 +56,8 @@ function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authErr = requireAuth(req); if (authErr) return authErr
   try {
     const [configResult, skillDirs] = await Promise.all([
       getFileContent('aeon.yml'),
@@ -92,7 +94,8 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   try {
     const { name, enabled, schedule, var: skillVar, model } = await request.json()
     const { content, sha } = await getFileContent('aeon.yml')
@@ -145,7 +148,8 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   try {
     const { name } = await request.json()
     if (!name || !/^[a-z][a-z0-9-]*$/.test(name)) {

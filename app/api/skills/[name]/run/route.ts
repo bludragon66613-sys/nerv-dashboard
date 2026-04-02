@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
-import { execSync } from 'child_process'
+import { NextRequest, NextResponse } from 'next/server'
+import { execFileSync } from 'child_process'
 import { resolve } from 'path'
+import { requireAuth } from '@/lib/auth'
 
 const REPO_ROOT = resolve(process.cwd(), '..')
 
@@ -35,9 +36,10 @@ async function triggerViaAPI(skill: string, skillVar?: string, model?: string) {
 }
 
 export async function POST(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ name: string }> },
 ) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   try {
     const { name } = await params
 
@@ -62,11 +64,11 @@ export async function POST(
       return NextResponse.json({ ok: true })
     }
 
-    let cmd = `gh workflow run aeon.yml -f skill=${name}`
-    if (skillVar) cmd += ` -f var=${JSON.stringify(skillVar)}`
-    if (model) cmd += ` -f model=${JSON.stringify(model)}`
+    const args = ['workflow', 'run', 'aeon.yml', '-f', `skill=${name}`]
+    if (skillVar) args.push('-f', `var=${skillVar}`)
+    if (model) args.push('-f', `model=${model}`)
 
-    execSync(cmd, { stdio: 'pipe', cwd: REPO_ROOT })
+    execFileSync('gh', args, { stdio: 'pipe', cwd: REPO_ROOT })
     return NextResponse.json({ ok: true })
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to trigger run'

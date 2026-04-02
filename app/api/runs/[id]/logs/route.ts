@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { execSync } from 'child_process'
 import { resolve } from 'path'
+import { requireAuth } from '@/lib/auth'
 
 const REPO_ROOT = resolve(process.cwd(), '..')
 
@@ -98,9 +99,10 @@ function extractSummaryAndFilter(logs: string): { output: string; summaryLines: 
 }
 
 export async function GET(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   try {
     const { id } = await params
 

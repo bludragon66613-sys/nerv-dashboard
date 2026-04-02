@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import {
   getRemoteDirectory,
   getRemoteFileContent,
@@ -23,7 +24,8 @@ function extractDescription(content: string): string {
   return ''
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   try {
     const { action, repo, skills: skillNames } = await request.json()
 

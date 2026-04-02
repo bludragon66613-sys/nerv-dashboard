@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import jwt from 'jsonwebtoken'
 
-const SECRET = process.env.DASHBOARD_SECRET ?? (() => {
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('DASHBOARD_SECRET env var is required in production')
-  }
-  console.warn('[auth] DASHBOARD_SECRET not set — using insecure default (dev only)')
-  return 'change-me-32-char-secret-xxxxxxxx'
-})()
+const rawSecret = process.env.DASHBOARD_SECRET
+if (!rawSecret) throw new Error('[auth] DASHBOARD_SECRET env var is required — set it in .env.local')
+const SECRET: string = rawSecret
+
 const _ttl = parseInt(process.env.JWT_TTL_SECONDS || '86400', 10)
 const TTL = Number.isFinite(_ttl) && _ttl > 0 ? _ttl : 86400
 

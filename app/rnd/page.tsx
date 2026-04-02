@@ -1,5 +1,7 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
+import { C, MODELS } from '@/lib/theme'
+import { timeAgo } from '@/lib/utils'
 
 import { useState, useEffect, useCallback } from 'react'
 
@@ -10,38 +12,6 @@ interface Memo {
   excerpt: string
   body: string
   mtime: number
-}
-
-const C = {
-  bg:         '#04040a',
-  bgPanel:    '#06070d',
-  border:     '#12161e',
-  borderHi:   '#1c2230',
-  cyan:       '#00ccdd',
-  cyanDim:    '#004455',
-  orange:     '#ff6600',
-  green:      '#00ff88',
-  amber:      '#ffaa00',
-  red:        '#ff3333',
-  purple:     '#aa55ff',
-  text:       '#a8b4c4',
-  textBright: '#d8e4f0',
-  textDim:    '#2e3848',
-}
-
-const MODELS = [
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
-]
-
-function timeAgo(mtime: number) {
-  const d = Date.now() - mtime
-  const m = Math.floor(d / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.floor(h / 24)}d ago`
 }
 
 // ─── MARKDOWN RENDERER ───────────────────────────────────────────────────────

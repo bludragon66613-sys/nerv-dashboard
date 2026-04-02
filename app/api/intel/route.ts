@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import path from 'path'
 import fs from 'fs/promises'
 
@@ -6,7 +7,8 @@ import fs from 'fs/promises'
 // dashboard/ is one level inside the repo, so ../memory/logs/...
 const INTEL_PATH = path.join(process.cwd(), '..', 'memory', 'logs', 'intel-latest.json')
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authErr = requireAuth(req); if (authErr) return authErr
   try {
     const raw = await fs.readFile(INTEL_PATH, 'utf-8')
     const data = JSON.parse(raw)

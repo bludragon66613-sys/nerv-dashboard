@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { execSync } from 'child_process'
 import { resolve } from 'path'
 
@@ -12,7 +13,8 @@ function run(cmd: string) {
   return execSync(cmd, { stdio: 'pipe', cwd: REPO_ROOT }).toString().trim()
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authErr = requireAuth(req); if (authErr) return authErr
   // On Vercel: changes go directly to GitHub via API — no local git needed
   if (isRemote()) {
     return NextResponse.json({ hasChanges: false, changedFiles: 0 })
@@ -29,7 +31,8 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  const authErr = requireAuth(req); if (authErr) return authErr
   // On Vercel: changes are already committed to GitHub via the GitHub API — nothing to sync
   if (isRemote()) {
     return NextResponse.json({ ok: true, message: 'Changes are saved directly to GitHub via API' })
@@ -41,7 +44,7 @@ export async function POST() {
       return NextResponse.json({ ok: true, message: 'Already in sync' })
     }
 
-    run('git add -A')
+    run('git add aeon.yml skills/')
 
     try {
       run('git commit -m "chore: update config from dashboard"')

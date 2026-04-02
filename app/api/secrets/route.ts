@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { execSync } from 'child_process'
 
 const BUILTIN_SECRETS = [
@@ -70,7 +71,8 @@ async function listSecretsViaAPI(): Promise<string[]> {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authErr = requireAuth(req); if (authErr) return authErr
   if (isRemote()) {
     // On Vercel: check GitHub Actions secrets via API
     const secretNames = await listSecretsViaAPI()
@@ -116,7 +118,8 @@ export async function GET() {
   return NextResponse.json({ secrets, ghReady: true })
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   const body = await request.json().catch(() => ({})) as { name?: string; value?: string }
   const { name, value } = body
 
@@ -152,7 +155,8 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
+  const authErr = requireAuth(request); if (authErr) return authErr
   const body = await request.json().catch(() => ({})) as { name?: string }
   const { name } = body
 
