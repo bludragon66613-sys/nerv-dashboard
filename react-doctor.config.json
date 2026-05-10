@@ -1,0 +1,10 @@
+{
+  "ignore": {
+    "rules": [
+      "react-doctor/no-tiny-text",
+      "react-doctor/no-wide-letter-spacing",
+      "react-doctor/design-no-em-dash-in-jsx-text",
+      "react-doctor/design-no-three-period-ellipsis"
+    ]
+  }
+}
