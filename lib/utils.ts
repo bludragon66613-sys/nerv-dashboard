@@ -64,7 +64,7 @@ export function runStatusLabel(status: string, conclusion: string | null): strin
 // Skill group lookup
 export function getGroup(name: string, skillGroups: Record<string, string[]>): string {
   for (const [g, skills] of Object.entries(skillGroups)) {
-    if (skills.includes(name)) return g
+    if (new Set(skills).has(name)) return g
   }
   return 'META'
 }

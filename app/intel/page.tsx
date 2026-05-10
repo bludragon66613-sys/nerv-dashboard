@@ -1,7 +1,7 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useReducer } from 'react'
 import type { RiskParams, Strategy, ConsensusItem, IntelData } from '@/lib/types'
 import { fmtPrice, fmtM, pct, fgColor, biasColor, dirColor, convColor } from '@/lib/utils'
 
@@ -38,11 +38,11 @@ function FearGreedArc({ value, classification }: { value: number; classification
           { start: startAngle + totalArc * 0.4, end: startAngle + totalArc * 0.6, color: '#eab308' },
           { start: startAngle + totalArc * 0.6, end: startAngle + totalArc * 0.8, color: '#22c55e' },
           { start: startAngle + totalArc * 0.8, end: endAngle, color: '#10b981' },
-        ].map((seg, i) => {
+        ].map((seg) => {
           if (valueAngle <= seg.start) return null
           const segEnd = Math.min(valueAngle, seg.end)
           const d = `M ${arcX(seg.start)} ${arcY(seg.start)} A ${r} ${r} 0 ${seg.end - seg.start > 180 ? 1 : 0} 1 ${arcX(segEnd)} ${arcY(segEnd)}`
-          return <path key={i} d={d} fill="none" stroke={seg.color} strokeWidth="8" strokeLinecap="round" opacity="0.9" />
+          return <path key={seg.color} d={d} fill="none" stroke={seg.color} strokeWidth="8" strokeLinecap="round" opacity="0.9" />
         })}
         {/* Needle dot */}
         <circle cx={needleX} cy={needleY} r="5" fill={color} />
@@ -88,8 +88,9 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
   const dColor = dirColor(s.direction)
 
   return (
-    <div
-      className="border rounded-lg overflow-hidden cursor-pointer transition-all duration-200 hover:border-[#3a3a3a] group"
+    <button
+      type="button"
+      className="border rounded-lg overflow-hidden cursor-pointer transition-all duration-200 hover:border-[#3a3a3a] group w-full text-left bg-transparent p-0"
       style={{ borderColor: open ? '#2a2a2a' : '#1e1e1e', background: '#0d0d0d' }}
       onClick={() => setOpen(o => !o)}
     >
@@ -112,7 +113,9 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
           <div className="flex items-center gap-2 shrink-0">
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.min(5, Math.ceil(s.score / 20)) }).map((_, i) => (
-                <div key={i} className="w-1 h-3 rounded-sm" style={{ background: cColor, opacity: 0.7 + i * 0.06 }} />
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key
+              // score bar segments are anonymous visual elements with no stable id
+              <div key={i} className="w-1 h-3 rounded-sm" style={{ background: cColor, opacity: 0.7 + i * 0.06 }} />
               ))}
             </div>
             <span className="text-[10px] font-mono text-[#4b5563] group-hover:text-[#6b7280]">{open ? '▲' : '▼'}</span>
@@ -142,6 +145,7 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
 
         {/* Reasons */}
         {s.reasons.slice(0, 2).map((r, i) => (
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- reason strings are not unique
           <div key={i} className="flex items-start gap-1.5 mt-1.5">
             <span className="text-[#d98310] text-[10px] mt-0.5 shrink-0">›</span>
             <span className="text-[11px] font-mono text-[#9ca3af]">{r}</span>
@@ -158,6 +162,7 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
 
           {/* Remaining reasons */}
           {s.reasons.slice(2).map((r, i) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- reason strings are not unique
             <div key={i} className="flex items-start gap-1.5">
               <span className="text-[#d98310] text-[10px] mt-0.5 shrink-0">›</span>
               <span className="text-[11px] font-mono text-[#9ca3af]">{r}</span>
@@ -209,7 +214,7 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
           )}
         </div>
       )}
-    </div>
+    </button>
   )
 }
 
@@ -253,7 +258,7 @@ function Tile({ label, value, sub, color, pulse }: { label: string; value: strin
     <div className="bg-[#0d0d0d] border border-[#1e1e1e] rounded-lg p-4 flex flex-col gap-1">
       <div className="text-[9px] font-mono text-[#4b5563] uppercase tracking-[0.15em]">{label}</div>
       <div className="flex items-center gap-2">
-        {pulse && <div className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: color || '#d98310' }} />}
+        {pulse && <div className="size-1.5 rounded-full animate-pulse shrink-0" style={{ background: color || '#d98310' }} />}
         <span className="text-sm font-mono font-bold leading-none" style={{ color: color || '#f5f5f0' }}>{value}</span>
       </div>
       {sub && <div className="text-[10px] font-mono text-[#4b5563] mt-0.5">{sub}</div>}
@@ -292,7 +297,7 @@ export default function IntelPage() {
   const [error, setError] = useState<string | null>(null)
   const [lastFetch, setLastFetch] = useState<Date | null>(null)
   const [tab, setTab] = useState<Tab>('strategies')
-  const [tick, setTick] = useState(0)
+  const [, forceUpdate] = useReducer((n: number) => n + 1, 0)
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -313,7 +318,7 @@ export default function IntelPage() {
   useEffect(() => {
     fetch()
     const refresh = setInterval(fetch, 5 * 60 * 1000)
-    const clock = setInterval(() => setTick(t => t + 1), 1000)
+    const clock = setInterval(forceUpdate, 1000)
     return () => { clearInterval(refresh); clearInterval(clock) }
   }, [fetch])
 
@@ -344,8 +349,8 @@ export default function IntelPage() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="relative">
-                <div className="w-2 h-2 rounded-full bg-[#d98310]" />
-                <div className="absolute inset-0 w-2 h-2 rounded-full bg-[#d98310] animate-ping opacity-40" />
+                <div className="size-2 rounded-full bg-[#d98310]" />
+                <div className="absolute inset-0 size-2 rounded-full bg-[#d98310] animate-ping opacity-40" />
               </div>
               <span className="text-[#d98310] font-bold text-xs tracking-[0.25em] uppercase">NERV_02</span>
               <span className="text-[#2a2a2a]">|</span>
@@ -401,6 +406,7 @@ export default function IntelPage() {
           <div className="text-[#d98310] text-xs font-mono animate-pulse tracking-widest">SCANNING MARKETS...</div>
           <div className="flex gap-1">
             {[0, 1, 2, 3, 4].map(i => (
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static animation bars, never reorders
               <div key={i} className="w-1 bg-[#d98310] rounded-full animate-bounce" style={{ height: 12 + i * 6, animationDelay: `${i * 0.1}s` }} />
             ))}
           </div>
@@ -524,10 +530,10 @@ export default function IntelPage() {
                         <div key={h} className="text-[9px] font-mono text-[#2a2a2a] uppercase tracking-widest">{h}</div>
                       ))}
                     </div>
-                    {data.leaderboard.top_traders.slice(0, 15).map((t, i) => {
+                    {data.leaderboard.top_traders.slice(0, 15).map((t) => {
                       const wr = t.trade_stats?.win_rate
                       return (
-                        <div key={i} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-6 px-4 py-2.5 border-b border-[#111111] last:border-0 hover:bg-[#111111] transition-colors">
+                        <div key={t.display} className="grid grid-cols-[1fr_auto_auto_auto] gap-x-6 px-4 py-2.5 border-b border-[#111111] last:border-0 hover:bg-[#111111] transition-colors">
                           <span className="text-[11px] font-mono text-[#6b7280] truncate">{t.display}</span>
                           <span className="text-[11px] font-mono text-green-400">${(t.all_time.pnl / 1e6).toFixed(1)}M</span>
                           <span className={`text-[11px] font-mono ${t.month.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>

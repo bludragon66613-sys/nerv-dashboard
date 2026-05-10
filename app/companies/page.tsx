@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useEffect, useCallback } from 'react'
 
 interface Company {
@@ -98,9 +99,9 @@ export default function CompaniesPage() {
           <code style={{ fontSize: 10, color: '#a1a1aa', background: '#111318', padding: '8px 14px', border: '1px solid #1c2230', display: 'block', width: '100%' }}>
             cd ~/paperclip && pnpm dev
           </code>
-          <a href="/" style={{ fontSize: 10, letterSpacing: 2, color: '#ff6600', border: '1px solid #ff660044', padding: '6px 16px', textDecoration: 'none', marginTop: 8 }}>
+          <Link href="/" style={{ fontSize: 10, letterSpacing: 2, color: '#ff6600', border: '1px solid #ff660044', padding: '6px 16px', textDecoration: 'none', marginTop: 8 }}>
             ◈ BACK TO NERV
-          </a>
+          </Link>
         </div>
       </div>
     )
@@ -113,10 +114,10 @@ export default function CompaniesPage() {
       <header className="border-b border-zinc-800/50 px-5 py-3 shrink-0" style={{ background: '#06070d' }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <a href="/" className="flex items-center gap-2" style={{ textDecoration: 'none' }}>
+            <Link href="/" className="flex items-center gap-2" style={{ textDecoration: 'none' }}>
               <div style={{ width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: '10px solid #ff6600', filter: 'drop-shadow(0 0 4px #ff660066)' }} />
               <span style={{ fontSize: 11, letterSpacing: 4, color: '#ff6600', fontWeight: 700 }}>NERV</span>
-            </a>
+            </Link>
             <span style={{ color: '#1c2230', fontSize: 14 }}>/</span>
             <div className="flex items-center gap-2">
               <div style={{ width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: '10px solid #22c55e', filter: 'drop-shadow(0 0 4px #22c55e66)' }} />
@@ -138,9 +139,9 @@ export default function CompaniesPage() {
             >
               FULL UI ↗
             </a>
-            <a href="/" style={{ fontSize: 10, letterSpacing: 2, color: '#71717a', border: '1px solid #27272a', padding: '4px 10px', textDecoration: 'none' }}>
+            <Link href="/" style={{ fontSize: 10, letterSpacing: 2, color: '#71717a', border: '1px solid #27272a', padding: '4px 10px', textDecoration: 'none' }}>
               ← DASHBOARD
-            </a>
+            </Link>
           </div>
         </div>
       </header>
@@ -159,8 +160,8 @@ export default function CompaniesPage() {
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="relative flex items-center justify-center">
-              <div className="absolute h-10 w-10 rounded-full border border-[#22c55e]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
-              <div className="h-2 w-2 rounded-full bg-[#22c55e] shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
+              <div className="absolute size-10 rounded-full border border-[#22c55e]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
+              <div className="size-2 rounded-full bg-[#22c55e] shadow-[0_0_8px_rgba(34,197,94,0.4)]" />
             </div>
             <span style={{ fontSize: 9, color: '#27272a', letterSpacing: 2 }}>LOADING COMPANIES...</span>
           </div>

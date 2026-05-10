@@ -1,5 +1,6 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
+import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef } from 'react'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -110,14 +111,17 @@ function ObsCard({
       style={{
         borderLeft: `2px solid ${expanded ? meta.color : meta.color + '44'}`,
         background: expanded ? `${meta.color}06` : 'transparent',
-        transition: 'all 0.15s',
+        transition: 'border-color 0.15s, background 0.15s',
         paddingLeft: 12,
         paddingBottom: expanded ? 12 : 0,
       }}
     >
       {/* Row */}
       <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
         style={{
           display: 'flex', alignItems: 'flex-start', gap: 10,
           padding: '8px 8px 8px 0', cursor: 'pointer',
@@ -167,6 +171,7 @@ function ObsCard({
               </div>
               <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {facts.map((f, i) => (
+                  // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- free-form fact strings may not be unique
                   <li key={i} style={{ color: C.text, fontSize: 11, lineHeight: 1.5 }}>{f}</li>
                 ))}
               </ul>
@@ -180,8 +185,8 @@ function ObsCard({
                     READ ({filesRead.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {filesRead.map((f, i) => (
-                      <span key={i} style={{ color: C.teal, fontSize: 10, fontFamily: 'monospace' }}>
+                    {filesRead.map((f) => (
+                      <span key={f} style={{ color: C.teal, fontSize: 10, fontFamily: 'monospace' }}>
                         {f.replace(/^.*[/\\]/, '…/')}
                       </span>
                     ))}
@@ -194,8 +199,8 @@ function ObsCard({
                     MODIFIED ({filesModified.length})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {filesModified.map((f, i) => (
-                      <span key={i} style={{ color: C.amber, fontSize: 10, fontFamily: 'monospace' }}>
+                    {filesModified.map((f) => (
+                      <span key={f} style={{ color: C.amber, fontSize: 10, fontFamily: 'monospace' }}>
                         {f.replace(/^.*[/\\]/, '…/')}
                       </span>
                     ))}
@@ -300,12 +305,12 @@ export default function TimelinePage() {
           {typeFilter !== 'all' && ` · ${typeCounts[typeFilter] ?? 0} ${typeFilter}`}
         </span>
         <div style={{ flex: 1 }} />
-        <a href="/memory" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none' }}>
+        <Link href="/memory" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none' }}>
           ◈ MEMORY
-        </a>
-        <a href="/" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none' }}>
+        </Link>
+        <Link href="/" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none' }}>
           ← BACK
-        </a>
+        </Link>
       </div>
 
       {/* Filter bar */}
@@ -342,10 +347,11 @@ export default function TimelinePage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="filter loaded..."
+          className="focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
           style={{
             background: C.bgPanel, border: `1px solid ${C.border}`, borderRadius: 3,
             color: C.textBright, fontSize: 11, padding: '4px 10px',
-            fontFamily: 'monospace', outline: 'none', width: 180,
+            fontFamily: 'monospace', width: 180,
           }}
         />
       </div>

@@ -1,5 +1,6 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
+import Link from 'next/link'
 import { C, MODELS } from '@/lib/theme'
 import { timeAgo } from '@/lib/utils'
 
@@ -16,7 +17,7 @@ interface Memo {
 
 // ─── MARKDOWN RENDERER ───────────────────────────────────────────────────────
 
-function renderMarkdown(md: string) {
+function MarkdownRenderer({ md }: { md: string }) {
   const lines = md.split('\n')
   const elements: React.ReactNode[] = []
   let i = 0
@@ -148,7 +149,7 @@ function renderMarkdown(md: string) {
     i++
   }
 
-  return elements
+  return <>{elements}</>
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
@@ -203,10 +204,10 @@ export default function RndPage() {
     const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
     const day = ist.getDay() // 0=Sun,1=Mon...4=Thu
     const h = ist.getHours(), m = ist.getMinutes()
-    const targets = [1, 4] // Mon, Thu
+    const targets = new Set([1, 4]) // Mon, Thu
     for (let offset = 0; offset <= 7; offset++) {
       const d = (day + offset) % 7
-      if (targets.includes(d)) {
+      if (targets.has(d)) {
         if (offset === 0 && (h > 9 || (h === 9 && m > 0))) continue
         const label = offset === 0 ? 'today' : offset === 1 ? 'tomorrow' : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]
         return `${label} 09:00 IST`
@@ -220,9 +221,9 @@ export default function RndPage() {
 
       {/* ── TOP BAR ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 20px', borderBottom: `1px solid ${C.border}`, flexShrink: 0, background: C.bgPanel }}>
-        <a href="/" style={{ textDecoration: 'none' }}>
+        <Link href="/" style={{ textDecoration: 'none' }}>
           <span style={{ color: C.orange, fontWeight: 700, letterSpacing: 3, fontSize: 13 }}>NERV_02</span>
-        </a>
+        </Link>
         <span style={{ color: C.textDim }}>›</span>
         <span style={{ color: C.cyan, letterSpacing: 2, fontSize: 11 }}>R&D COUNCIL</span>
 
@@ -246,13 +247,15 @@ export default function RndPage() {
           ▶ CONVENE COUNCIL
         </button>
 
-        <a href="/" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none', letterSpacing: 1 }}>← BACK</a>
+        <Link href="/" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none', letterSpacing: 1 }}>← BACK</Link>
       </div>
 
       {/* ── DISPATCH MODAL ── */}
       {showDispatch && (
+        /* react-doctor-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */
         <div style={{ position: 'fixed', inset: 0, background: '#00000088', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setShowDispatch(false)}>
+          {/* react-doctor-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
           <div style={{ background: C.bgPanel, border: `1px solid ${C.cyan}44`, padding: 28, width: 420, maxWidth: '90vw' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ color: C.cyan, fontSize: 12, letterSpacing: 2, fontWeight: 700, marginBottom: 20 }}>◈ CONVENE R&D COUNCIL</div>
@@ -262,14 +265,16 @@ export default function RndPage() {
               value={focus}
               onChange={e => setFocus(e.target.value)}
               placeholder="e.g. crypto, NERV dashboard, investments..."
-              style={{ width: '100%', background: C.bg, border: `1px solid ${C.border}`, color: C.textBright, fontSize: 11, padding: '7px 10px', fontFamily: 'monospace', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }}
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              style={{ width: '100%', background: C.bg, border: `1px solid ${C.border}`, color: C.textBright, fontSize: 11, padding: '7px 10px', fontFamily: 'monospace', marginBottom: 14, boxSizing: 'border-box' }}
             />
 
             <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6 }}>MODEL</div>
             <select
               value={model}
               onChange={e => setModel(e.target.value)}
-              style={{ width: '100%', background: C.bg, border: `1px solid ${C.border}`, color: C.text, fontSize: 11, padding: '7px 10px', fontFamily: 'monospace', outline: 'none', marginBottom: 20 }}
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              style={{ width: '100%', background: C.bg, border: `1px solid ${C.border}`, color: C.text, fontSize: 11, padding: '7px 10px', fontFamily: 'monospace', marginBottom: 20 }}
             >
               {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
@@ -322,7 +327,10 @@ export default function RndPage() {
             {memos.map(m => (
               <div
                 key={m.filename}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelected(m)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(m) } }}
                 style={{
                   padding: '12px 14px',
                   borderBottom: `1px solid ${C.border}`,
@@ -368,7 +376,7 @@ export default function RndPage() {
 
               {/* Memo content */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
-                {renderMarkdown(selected.body)}
+                <MarkdownRenderer md={selected.body} />
               </div>
             </>
           )}

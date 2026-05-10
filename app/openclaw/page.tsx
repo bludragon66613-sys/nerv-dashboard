@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useEffect, useCallback } from 'react'
 
 interface Check {
@@ -105,10 +106,10 @@ export default function OpenClawPage() {
       <header className="border-b border-zinc-800/50 px-6 py-3" style={{ background: '#06070d' }}>
         <div className="flex items-center justify-between max-w-[1400px] mx-auto">
           <div className="flex items-center gap-4">
-            <a href="/" className="flex items-center gap-3 no-underline">
+            <Link href="/" className="flex items-center gap-3 no-underline">
               <div style={{ width: 0, height: 0, borderLeft: '8px solid transparent', borderRight: '8px solid transparent', borderBottom: '13px solid #ff6600', filter: 'drop-shadow(0 0 6px #ff660088)' }} />
               <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 5, color: '#ff6600' }}>NERV</span>
-            </a>
+            </Link>
             <span style={{ color: '#2e3848' }}>/</span>
             <span style={{ fontSize: 13, letterSpacing: 4, color: '#f59e0b' }}>OPENCLAW</span>
           </div>

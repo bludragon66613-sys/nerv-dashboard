@@ -1,6 +1,6 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
-
+import Link from 'next/link'
 import { useState, useEffect, useCallback } from 'react'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -82,12 +82,15 @@ function MemoryCard({
   const meta = TYPE_META[file.type] ?? TYPE_META.user
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       style={{
         background: selected ? `${meta.color}08` : C.bgPanel,
         border: `1px solid ${selected ? meta.color + '44' : C.border}`,
         borderRadius: 4, padding: '10px 12px', cursor: 'pointer',
-        transition: 'all 0.15s',
+        transition: 'background 0.15s, border-color 0.15s',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -163,7 +166,7 @@ export default function MemoryPage() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [lastRefresh, setLastRefresh] = useState(Date.now())
+  const [lastRefresh, setLastRefresh] = useState(() => Date.now())
 
   const load = useCallback(async () => {
     try {
@@ -227,9 +230,9 @@ export default function MemoryPage() {
         >
           ↺ REFRESH
         </button>
-        <a href="/" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none' }}>
+        <Link href="/" style={{ color: C.textDim, fontSize: 10, textDecoration: 'none' }}>
           ← BACK
-        </a>
+        </Link>
       </div>
 
       {/* Filter bar */}
@@ -262,10 +265,11 @@ export default function MemoryPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="search memory..."
+          className="focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
           style={{
             background: C.bgPanel, border: `1px solid ${C.border}`, borderRadius: 3,
             color: C.textBright, fontSize: 11, padding: '4px 10px',
-            fontFamily: 'monospace', outline: 'none', width: 200,
+            fontFamily: 'monospace', width: 200,
           }}
         />
       </div>

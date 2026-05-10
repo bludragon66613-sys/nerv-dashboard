@@ -1,5 +1,6 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
+import Link from 'next/link'
 import { useState, useEffect, useRef, useCallback } from 'react'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -256,11 +257,11 @@ export default function AgencyPage() {
 
       {/* Header */}
       <div style={{ borderBottom: '1px solid #1c2230', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <a href="/" style={{ color: '#f59e0b', textDecoration: 'none', fontSize: 11, letterSpacing: 2 }}>← NERV_02</a>
+        <Link href="/" style={{ color: '#f59e0b', textDecoration: 'none', fontSize: 11, letterSpacing: 2 }}>← NERV_02</Link>
         <div style={{ flex: 1 }} />
         <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 4, color: '#f59e0b' }}>◈ NEXUS COMMAND CENTER</div>
         <div style={{ flex: 1 }} />
-        <a href="/agents" style={{ fontSize: 10, letterSpacing: 2, color: '#4488ff', border: '1px solid #4488ff44', padding: '4px 10px', textDecoration: 'none' }}>◈ AGENTS</a>
+        <Link href="/agents" style={{ fontSize: 10, letterSpacing: 2, color: '#4488ff', border: '1px solid #4488ff44', padding: '4px 10px', textDecoration: 'none' }}>◈ AGENTS</Link>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 0, minHeight: 'calc(100vh - 57px)' }}>
@@ -318,10 +319,11 @@ export default function AgencyPage() {
               onChange={e => handleIntentChange(e.target.value)}
               placeholder="Describe what you want to do... (e.g. 'run hl-intel', 'brief me on AI news', 'analyze my portfolio')"
               rows={4}
+              className="focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
               style={{
                 width: '100%', background: '#0d1117', border: '1px solid #1c2230',
                 color: '#c9d3e0', padding: '10px 14px', fontSize: 12, fontFamily: 'monospace',
-                resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                resize: 'vertical', boxSizing: 'border-box',
               }}
             />
             <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
@@ -386,8 +388,8 @@ export default function AgencyPage() {
             <div>
               <div style={{ fontSize: 10, color: '#f59e0b', letterSpacing: 2, marginBottom: 10 }}>CLARIFY INTENT — choose one:</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {classified.suggestions.map((s, i) => (
-                  <div key={i} style={{ background: '#0d1117', border: '1px solid #f59e0b33', padding: 12, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                {classified.suggestions.map((s) => (
+                  <div key={s.skill} style={{ background: '#0d1117', border: '1px solid #f59e0b33', padding: 12, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>{s.label}</div>
                       <div style={{ fontSize: 10, color: '#8892a4', marginTop: 3 }}>{s.description}</div>
@@ -422,7 +424,10 @@ export default function AgencyPage() {
             {jobs.map(job => (
               <div
                 key={job.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedJob(selectedJob?.id === job.id ? null : job) } }}
                 style={{
                   background: selectedJob?.id === job.id ? '#0d1117' : '#080a0f',
                   borderTop: `1px solid ${selectedJob?.id === job.id ? '#1c2230' : '#111827'}`,

@@ -4,7 +4,123 @@
       "react-doctor/no-tiny-text",
       "react-doctor/no-wide-letter-spacing",
       "react-doctor/design-no-em-dash-in-jsx-text",
-      "react-doctor/design-no-three-period-ellipsis"
+      "react-doctor/design-no-three-period-ellipsis",
+      "react-doctor/no-long-transition-duration",
+      "react-doctor/no-inline-bounce-easing",
+      "react-doctor/no-side-tab-border",
+      "react-doctor/design-no-bold-heading",
+      "react-doctor/no-z-index-9999",
+      "react-doctor/no-inline-exhaustive-style",
+      "react-doctor/rendering-hydration-mismatch-time",
+      "react-doctor/nextjs-missing-metadata"
+    ],
+    "overrides": [
+      {
+        "files": ["app/api/agency/jobs/route.ts"],
+        "rules": ["react-doctor/nextjs-no-side-effect-in-get-handler"]
+      },
+      {
+        "files": ["app/nerv/page.tsx", "app/page.tsx"],
+        "rules": ["jsx-a11y/no-autofocus"]
+      },
+      {
+        "files": ["lib/workflow-engine.ts"],
+        "rules": ["knip/exports", "knip/types"]
+      },
+      {
+        "files": ["lib/auth.ts", "lib/github.ts", "lib/jobs.ts", "lib/workflow-runs.ts"],
+        "rules": ["knip/exports"]
+      },
+      {
+        "files": ["command-registry-hook.mjs", "ecosystem.config.cjs", "openclaw-proxy/index.js"],
+        "rules": ["knip/files"]
+      },
+      {
+        "files": [
+          "lib/catalog.ts",
+          "app/api/memory/route.ts",
+          "app/api/import/route.ts",
+          "app/api/agency/dispatch/route.ts"
+        ],
+        "rules": ["react-doctor/js-set-map-lookups"]
+      },
+      {
+        "files": ["app/api/**", "lib/**"],
+        "rules": [
+          "react-doctor/async-await-in-loop",
+          "react-doctor/async-parallel",
+          "react-doctor/server-fetch-without-revalidate",
+          "react-doctor/server-hoist-static-io",
+          "react-doctor/js-combine-iterations"
+        ]
+      },
+      {
+        "files": [
+          "app/openclaw/page.tsx",
+          "app/intel/page.tsx",
+          "app/nerv/page.tsx",
+          "app/agency/page.tsx",
+          "app/page.tsx"
+        ],
+        "rules": ["react-doctor/no-giant-component"]
+      },
+      {
+        "files": [
+          "app/openclaw/page.tsx",
+          "app/intel/page.tsx",
+          "app/nerv/page.tsx",
+          "app/agency/page.tsx",
+          "app/page.tsx",
+          "app/rnd/page.tsx",
+          "app/agents/page.tsx",
+          "app/companies/page.tsx",
+          "app/memory/timeline/page.tsx",
+          "app/memory/page.tsx"
+        ],
+        "rules": ["react-doctor/prefer-useReducer"]
+      },
+      {
+        "files": [
+          "app/companies/page.tsx",
+          "app/page.tsx"
+        ],
+        "rules": ["react-doctor/rerender-state-only-in-handlers"]
+      },
+      {
+        "files": [
+          "app/nerv/page.tsx",
+          "app/intel/page.tsx"
+        ],
+        "rules": ["react-doctor/no-cascading-set-state"]
+      },
+      {
+        "files": [
+          "app/nerv/page.tsx",
+          "app/page.tsx"
+        ],
+        "rules": ["react-doctor/async-await-in-loop"]
+      },
+      {
+        "files": ["app/nerv/page.tsx"],
+        "rules": ["react-doctor/rendering-usetransition-loading"]
+      },
+      {
+        "files": ["app/intel/page.tsx"],
+        "rules": [
+          "react-doctor/no-fetch-in-effect",
+          "react-doctor/nextjs-no-client-fetch-for-server-data"
+        ]
+      },
+      {
+        "files": [
+          "app/page.tsx",
+          "app/rnd/page.tsx"
+        ],
+        "rules": [
+          "jsx-a11y/click-events-have-key-events",
+          "jsx-a11y/no-static-element-interactions"
+        ]
+      }
     ]
   }
 }

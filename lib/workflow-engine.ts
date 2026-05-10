@@ -122,7 +122,7 @@ export function topologicalSort(nodes: WorkflowNode[]): string[][] {
 
     if (wave.length === 0) {
       // Cycle detected — collect remaining nodes
-      const remaining = nodes.filter(n => !visited.has(n.id)).map(n => n.id)
+      const remaining = nodes.flatMap(n => visited.has(n.id) ? [] : [n.id])
       throw new Error(`Cycle detected in workflow DAG involving nodes: ${remaining.join(', ')}`)
     }
 
@@ -144,6 +144,9 @@ export function topologicalSort(nodes: WorkflowNode[]): string[][] {
 
 export function expandFanOut(nodes: WorkflowNode[]): WorkflowNode[] {
   const expanded: WorkflowNode[] = []
+  const mergeNodeBySource = new Map(
+    nodes.filter(n => n.mergeFrom != null).map(n => [n.mergeFrom!, n])
+  )
 
   for (const node of nodes) {
     if (!node.fanOut) {
@@ -167,7 +170,7 @@ export function expandFanOut(nodes: WorkflowNode[]): WorkflowNode[] {
     }
 
     // If there's a merge node, update its dependsOn to point at fan-out children
-    const mergeNode = nodes.find(n => n.mergeFrom === node.id)
+    const mergeNode = mergeNodeBySource.get(node.id)
     if (mergeNode) {
       mergeNode.dependsOn = Array.from({ length: count }, (_, i) => `${node.id}__fan_${i}`)
     }
@@ -187,9 +190,12 @@ export function compileWorkflow(def: WorkflowDefinition): { waves: string[][]; n
   // 2. Apply edge-based dependencies on top of declarative dependsOn
   if (def.edges) {
     const nodeMap = new Map(expanded.map(n => [n.id, n]))
+    const dependsOnSets = new Map(expanded.map(n => [n.id, new Set(n.dependsOn)]))
     for (const edge of def.edges) {
       const target = nodeMap.get(edge.to)
-      if (target && !target.dependsOn.includes(edge.from)) {
+      const depSet = dependsOnSets.get(edge.to)
+      if (target && depSet && !depSet.has(edge.from)) {
+        depSet.add(edge.from)
         target.dependsOn.push(edge.from)
       }
     }
@@ -243,7 +249,7 @@ export function createWorkflowRun(def: WorkflowDefinition): WorkflowRun {
 export function getNextExecutableNodes(run: WorkflowRun, def: WorkflowDefinition): WorkflowRunNode[] {
   const { nodeMap } = compileWorkflow(def)
   const completedNodeIds = new Set(
-    run.nodes.filter(n => n.status === 'completed').map(n => n.nodeId)
+    run.nodes.flatMap(n => n.status === 'completed' ? [n.nodeId] : [])
   )
 
   return run.nodes.filter(n => {

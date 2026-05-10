@@ -1,6 +1,6 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
-
+import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Skill, Run, LLMProvider, Secret } from '@/lib/types'
 import { MODELS } from '@/lib/theme'
@@ -37,7 +37,7 @@ function parseCron(cron: string): { mode: 'interval'; value: number; unit: 'm' |
     hour12: localH > 12 ? localH - 12 : localH === 0 ? 12 : localH,
     minute: local.m,
     ampm: localH >= 12 ? 'PM' : 'AM',
-    days: dow === '*' ? [-1] : dow.split(',').map(d => parseInt(d)).filter(d => !isNaN(d)),
+    days: dow === '*' ? [-1] : dow.split(',').flatMap(d => { const n = parseInt(d); return isNaN(n) ? [] : [n] }),
   }
 }
 
@@ -46,7 +46,7 @@ function cronLabel(cron: string): string {
   if (p.mode === 'interval') return `Every ${p.value}${p.unit}`
   const time = `${p.hour12}:${String(p.minute).padStart(2, '0')} ${p.ampm}`
   if (p.days.includes(-1)) return `${time} daily`
-  const dayNames = p.days.map(d => DAYS.find(x => x.value === d)?.label || '').filter(Boolean)
+  const dayNames = p.days.flatMap(d => { const label = DAYS.find(x => x.value === d)?.label || ''; return label ? [label] : [] })
   return `${time} ${dayNames.join(',')}`
 }
 
@@ -90,7 +90,7 @@ function ScheduleEditor({ cron, onSave }: { cron: string; onSave: (cron: string)
     <div className="px-4 py-2 bg-zinc-900/80 border-b border-zinc-800/30 flex flex-wrap items-center gap-x-4 gap-y-2" onClick={(e) => e.stopPropagation()}>
       {/* Interval */}
       <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
-        <input type="radio" name="sched-mode" checked={mode === 'interval'} onChange={() => setMode('interval')} className="accent-green-500 w-3 h-3" />
+        <input type="radio" name="sched-mode" checked={mode === 'interval'} onChange={() => setMode('interval')} className="accent-green-500 size-3" />
         <span className="text-[10px] text-zinc-400">Every</span>
         <input
           type="number" min={1} max={intervalUnit === 'm' ? 59 : 24} value={intervalValue}
@@ -110,7 +110,7 @@ function ScheduleEditor({ cron, onSave }: { cron: string; onSave: (cron: string)
 
       {/* Time */}
       <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
-        <input type="radio" name="sched-mode" checked={mode === 'time'} onChange={() => setMode('time')} className="accent-green-500 w-3 h-3" />
+        <input type="radio" name="sched-mode" checked={mode === 'time'} onChange={() => setMode('time')} className="accent-green-500 size-3" />
         <span className="text-[10px] text-zinc-400">At</span>
         <input
           type="number" min={1} max={12} value={hour12}
@@ -155,6 +155,7 @@ function ScheduleEditor({ cron, onSave }: { cron: string; onSave: (cron: string)
 }
 
 function VarEditor({ value: initial, onSave }: { value: string; onSave: (v: string) => void }) {
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- intentional local edit buffer seeded from prop
   const [value, setValue] = useState(initial)
 
   return (
@@ -660,8 +661,7 @@ export default function Dashboard() {
           // Add missing secrets to the list so user can set them
           setSecrets(s => {
             const newSecrets = missing
-              .filter((name: string) => !s.some(sec => sec.name === name))
-              .map((name: string) => ({ name, group: 'Skill Keys', description: `Required by ${data.name}`, isSet: false }))
+              .flatMap((name: string) => s.some(sec => sec.name === name) ? [] : [{ name, group: 'Skill Keys', description: `Required by ${data.name}`, isSet: false }])
             return [...s, ...newSecrets]
           })
         } else {
@@ -693,10 +693,10 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-6">
         <div className="relative flex items-center justify-center">
-          <div className="absolute h-16 w-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
-          <div className="absolute h-16 w-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite 0.6s' }} />
-          <div className="absolute h-16 w-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite 1.2s' }} />
-          <div className="h-3 w-3 rounded-full bg-[#ff6600] shadow-[0_0_12px_rgba(255,102,0,0.4)]" />
+          <div className="absolute size-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
+          <div className="absolute size-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite 0.6s' }} />
+          <div className="absolute size-16 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite 1.2s' }} />
+          <div className="size-3 rounded-full bg-[#ff6600] shadow-[0_0_12px_rgba(255,102,0,0.4)]" />
         </div>
         <div style={{ animation: 'fade-in-up 0.5s ease-out 0.3s both' }} />
       </div>
@@ -755,11 +755,11 @@ export default function Dashboard() {
                 rel="noopener noreferrer"
                 className="bg-transparent hover:bg-[#1c2230] text-[#a8b4c4] text-[11px] px-3 py-1.5 rounded-none border border-[#1c2230] font-mono tracking-wider transition-colors flex items-center gap-1.5"
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                <svg className="size-3.5" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                 GitHub
               </a>
             )}
-            <a
+            <Link
               href="/nerv"
               target="_blank"
               rel="noopener noreferrer"
@@ -768,8 +768,8 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#ff660010')}
             >
               ◈ TERMINAL
-            </a>
-            <a
+            </Link>
+            <Link
               href="/memory"
               target="_blank"
               rel="noopener noreferrer"
@@ -778,8 +778,8 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#aa55ff10')}
             >
               ◈ MEMORY
-            </a>
-            <a
+            </Link>
+            <Link
               href="/memory/timeline"
               target="_blank"
               rel="noopener noreferrer"
@@ -788,8 +788,8 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#00ccff10')}
             >
               ◈ TIMELINE
-            </a>
-            <a
+            </Link>
+            <Link
               href="/rnd"
               target="_blank"
               rel="noopener noreferrer"
@@ -798,9 +798,9 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#00ccdd10')}
             >
               ◈ R&D
-            </a>
-            
-            <a
+            </Link>
+
+            <Link
               href="/agency"
               target="_blank"
               rel="noopener noreferrer"
@@ -809,8 +809,8 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#f59e0b10')}
             >
               ◈ AGENCY
-            </a>
-            <a
+            </Link>
+            <Link
               href="/agents"
               target="_blank"
               rel="noopener noreferrer"
@@ -819,8 +819,8 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#4488ff10')}
             >
               ◈ AGENTS
-            </a>
-            <a
+            </Link>
+            <Link
               href="/companies"
               target="_blank"
               rel="noopener noreferrer"
@@ -829,8 +829,8 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = '#22c55e10')}
             >
               ◈ COMPANIES
-            </a>
-            <a
+            </Link>
+            <Link
               href="/openclaw"
               target="_blank"
               rel="noopener noreferrer"
@@ -839,7 +839,7 @@ export default function Dashboard() {
               onMouseLeave={e => (e.currentTarget.style.background = openclawStatus === 'ok' ? '#22c55e10' : openclawStatus === 'fail' ? '#ef444410' : '#f59e0b10')}
             >
               ◈ OPENCLAW
-            </a>
+            </Link>
             <select
               value={model}
               onChange={(e) => updateModel(e.target.value)}
@@ -880,10 +880,13 @@ export default function Dashboard() {
             <span className="text-[10px] text-zinc-600">Timezone: {getLocalTzAbbr()}</span>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {[...skills].sort((a, b) => Number(b.enabled) - Number(a.enabled)).map(skill => (
+            {skills.toSorted((a, b) => Number(b.enabled) - Number(a.enabled)).map(skill => (
               <div key={skill.name} className={`border-b border-zinc-800/20 border-l-2 ${skill.enabled ? 'bg-green-950/10 border-l-green-500' : 'border-l-transparent'}`}>
                 <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setOpenSchedule(openSchedule === skill.name ? null : skill.name)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenSchedule(openSchedule === skill.name ? null : skill.name) } }}
                   className="flex items-center gap-3 px-4 py-2.5 hover:bg-zinc-900/50 transition-colors cursor-pointer"
                 >
                   {/* Toggle */}
@@ -1160,8 +1163,8 @@ export default function Dashboard() {
                 {logsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="relative flex items-center justify-center">
-                      <div className="absolute h-8 w-8 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
-                      <div className="h-2 w-2 rounded-full bg-[#ff6600] shadow-[0_0_8px_rgba(255,102,0,0.4)]" />
+                      <div className="absolute size-8 rounded-full border border-[#ff6600]/20" style={{ animation: 'pulse-ring 2s ease-out infinite' }} />
+                      <div className="size-2 rounded-full bg-[#ff6600] shadow-[0_0_8px_rgba(255,102,0,0.4)]" />
                     </div>
                   </div>
                 ) : (
@@ -1304,8 +1307,9 @@ export default function Dashboard() {
             {uploadFiles.length > 0 && (
               <div className="mt-4 space-y-3">
                 <div>
-                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 block">Skill name (optional — auto-detected from folder or SKILL.md)</label>
+                  <label htmlFor="upload-skill-name" className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 block">Skill name (optional — auto-detected from folder or SKILL.md)</label>
                   <input
+                    id="upload-skill-name"
                     type="text"
                     value={uploadName}
                     onChange={(e) => setUploadName(e.target.value)}
@@ -1328,7 +1332,9 @@ export default function Dashboard() {
 
       {/* LLM Connect Modal */}
       {showConnectModal && (
+        /* react-doctor-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowConnectModal(false)}>
+          {/* react-doctor-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
           <div className="bg-[#06070d] border border-[#1c2230] w-full max-w-lg mx-4 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <div>
