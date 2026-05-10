@@ -45,14 +45,16 @@ export async function POST(
 
   // 1. Mark completed nodes
   const completed = body.completedNodes || []
+  const runNodeMap = new Map(run.nodes.map(n => [n.nodeId, n]))
+  const workflowDef = BUILTIN_WORKFLOWS.find(w => w.id === run.workflowId)
+  const workflowNodeMap = workflowDef ? new Map(workflowDef.nodes.map(n => [n.id, n])) : null
   for (const update of completed) {
-    const node = run.nodes.find(n => n.nodeId === update.nodeId)
+    const node = runNodeMap.get(update.nodeId)
     if (!node) continue
 
     if (update.error) {
       // Check retry config
-      const def = BUILTIN_WORKFLOWS.find(w => w.id === run.workflowId)
-      const nodeDef = def?.nodes.find(n => n.id === update.nodeId)
+      const nodeDef = workflowNodeMap?.get(update.nodeId)
       const maxRetries = nodeDef?.retry?.maxIterations || 0
 
       if (node.attempt < maxRetries) {

@@ -1,6 +1,6 @@
 'use client'
 import { apiFetch } from '@/lib/client-auth'
-
+import Link from 'next/link'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { Skill, Run, RiskParams, Strategy, ConsensusItem, IntelData } from '@/lib/types'
 import { C, SKILL_GROUPS, GROUP_COLORS } from '@/lib/theme'
@@ -149,11 +149,11 @@ function FearGreedArc({ value, classification }: { value: number; classification
   return (
     <svg width="140" height="96" viewBox="0 0 140 96">
       <path d={bgD} fill="none" stroke={C.bgDeep} strokeWidth="7" strokeLinecap="round" />
-      {segs.map((seg, i) => {
+      {segs.map((seg) => {
         if (valueAngle <= seg.start) return null
         const segEnd = Math.min(valueAngle, seg.end)
         const d = `M ${arcX(seg.start)} ${arcY(seg.start)} A ${r} ${r} 0 ${seg.end - seg.start > 180 ? 1 : 0} 1 ${arcX(segEnd)} ${arcY(segEnd)}`
-        return <path key={i} d={d} fill="none" stroke={seg.color} strokeWidth="7" strokeLinecap="round" opacity="0.9" />
+        return <path key={seg.color} d={d} fill="none" stroke={seg.color} strokeWidth="7" strokeLinecap="round" opacity="0.9" />
       })}
       <circle cx={needleX} cy={needleY} r="4" fill={color} />
       <circle cx={needleX} cy={needleY} r="4" fill={color} opacity="0.3">
@@ -190,7 +190,7 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
   const cColor = convColor(s.conviction)
   const dColor = dirColor(s.direction)
   return (
-    <div onClick={() => setOpen(o => !o)} style={{ border: `1px solid ${open ? C.borderHi : C.border}`, background: C.bgPanel, cursor: 'pointer', overflow: 'hidden', transition: 'border-color 0.15s', animation: 'nge-fadein 0.25s ease' }}>
+    <button type="button" onClick={() => setOpen(o => !o)} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: `1px solid ${open ? C.borderHi : C.border}`, backgroundColor: C.bgPanel, cursor: 'pointer', overflow: 'hidden', transition: 'border-color 0.15s', animation: 'nge-fadein 0.25s ease', padding: 0 }}>
       <div style={{ height: 2, background: cColor, opacity: 0.85 }} />
       <div style={{ padding: '10px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -202,6 +202,8 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {Array.from({ length: Math.min(5, Math.ceil(s.score / 20)) }).map((_, i) => (
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key
+              // score bar segments are anonymous visual elements with no stable id
               <div key={i} style={{ width: 2, height: 9, background: cColor, opacity: 0.6 + i * 0.08 }} />
             ))}
             <span style={{ color: C.textDim, fontFamily: 'monospace', fontSize: 8, marginLeft: 4 }}>{open ? '▲' : '▼'}</span>
@@ -215,10 +217,12 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 7 }}>
           {s.signals.map((sig, i) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- signals not guaranteed unique
             <span key={`${sig}-${i}`} style={{ fontFamily: 'monospace', fontSize: 7, padding: '2px 5px', background: C.bgDeep, color: C.textDim, border: `1px solid ${C.border}`, letterSpacing: 1 }}>{sig.replace(/_/g, ' ')}</span>
           ))}
         </div>
         {s.reasons.slice(0, 2).map((r, i) => (
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- reason strings not unique
           <div key={i} style={{ display: 'flex', gap: 5, marginTop: 4, alignItems: 'flex-start' }}>
             <span style={{ color: C.orange, fontSize: 8, marginTop: 1 }}>›</span>
             <span style={{ color: C.text, fontFamily: 'monospace', fontSize: 9, lineHeight: 1.5 }}>{r}</span>
@@ -229,6 +233,7 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
       {open && (
         <div style={{ borderTop: `1px solid ${C.border}`, padding: '10px 12px', background: C.bgDeep }}>
           {s.reasons.slice(2).map((r, i) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- reason strings not unique
             <div key={i} style={{ display: 'flex', gap: 5, marginBottom: 4, alignItems: 'flex-start' }}>
               <span style={{ color: C.orange, fontSize: 8, marginTop: 1 }}>›</span>
               <span style={{ color: C.text, fontFamily: 'monospace', fontSize: 9, lineHeight: 1.5 }}>{r}</span>
@@ -269,7 +274,7 @@ function StratCard({ s, rank }: { s: Strategy; rank: number }) {
           )}
         </div>
       )}
-    </div>
+    </button>
   )
 }
 
@@ -360,6 +365,7 @@ function IntelPanel({ onDispatch }: { onDispatch: (skill: string) => void }) {
         </div>
         <div style={{ display: 'flex', gap: 3 }}>
           {[0, 1, 2, 3, 4].map(i => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- static animation bars, never reorders
             <div key={i} style={{ width: 3, background: C.orange, borderRadius: 1, animation: 'nge-bar 1.2s ease-in-out infinite', animationDelay: `${i * 0.12}s`, height: 8 + i * 5 }} />
           ))}
         </div>
@@ -479,8 +485,8 @@ function IntelPanel({ onDispatch }: { onDispatch: (skill: string) => void }) {
                       <div key={h} style={{ fontFamily: 'monospace', fontSize: 6, color: C.textMuted, letterSpacing: 2 }}>{h}</div>
                     ))}
                   </div>
-                  {data.leaderboard.top_traders.slice(0, 12).map((t, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 12, padding: '5px 12px', borderBottom: `1px solid ${C.border}` }}>
+                  {data.leaderboard.top_traders.slice(0, 12).map((t) => (
+                    <div key={t.display} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 12, padding: '5px 12px', borderBottom: `1px solid ${C.border}` }}>
                       <span style={{ fontFamily: 'monospace', fontSize: 8, color: C.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.display}</span>
                       <span style={{ fontFamily: 'monospace', fontSize: 8, color: C.green }}>${(t.all_time.pnl / 1e6).toFixed(1)}M</span>
                       <span style={{ fontFamily: 'monospace', fontSize: 8, color: t.month.pnl >= 0 ? C.green : C.red }}>{t.month.pnl >= 0 ? '+' : ''}${(t.month.pnl / 1e3).toFixed(0)}k</span>
@@ -667,7 +673,10 @@ function WorkflowPanel() {
         <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {templates.map(t => (
             <div key={t.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setSelected(selected?.id === t.id ? null : t)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(selected?.id === t.id ? null : t) } }}
               style={{ padding: '8px 10px', background: selected?.id === t.id ? `${C.cyan}12` : `${C.border}18`, border: `1px solid ${selected?.id === t.id ? `${C.cyan}50` : C.border}`, cursor: 'pointer', position: 'relative' }}
             >
               <Brackets size={4} color={C.cyan} />
@@ -683,7 +692,10 @@ function WorkflowPanel() {
               <div style={{ fontFamily: 'monospace', fontSize: 7, letterSpacing: 2, color: C.textDim, marginTop: 8, paddingLeft: 4 }}>RECENT RUNS</div>
               {runs.slice(0, 10).map(r => (
                 <div key={r.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => refreshRun(r.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); refreshRun(r.id) } }}
                   style={{ padding: '6px 10px', background: activeRun?.id === r.id ? `${sc(r.status)}12` : 'transparent', border: `1px solid ${activeRun?.id === r.id ? `${sc(r.status)}40` : C.border}`, cursor: 'pointer' }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -757,9 +769,9 @@ function WorkflowPanel() {
                 <div style={{ marginTop: 16 }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 7, letterSpacing: 2, color: C.cyan, marginBottom: 6 }}>SCRATCHBOARD</div>
                   <div style={{ padding: '8px 12px', background: `${C.cyan}08`, border: `1px solid ${C.cyan}30`, fontFamily: 'monospace', fontSize: 8, color: C.text, whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 200, overflowY: 'auto' }}>
-                    {Object.entries(activeRun.scratchboard).filter(([k]) => !k.startsWith('_')).map(([k, v]) => (
+                    {Object.entries(activeRun.scratchboard).flatMap(([k, v]) => k.startsWith('_') ? [] : [
                       <div key={k}><span style={{ color: C.cyan }}>{k}:</span> {typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>
-                    ))}
+                    ])}
                   </div>
                 </div>
               )}
@@ -788,6 +800,8 @@ function WorkflowPanel() {
               const waves: typeof selected.nodes[] = Array.from({ length: maxD + 1 }, () => [])
               selected.nodes.forEach(n => waves[depth[n.id]].push(n))
 
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key
+              // waves are depth-ordered buckets computed from DAG analysis; index == depth level, never reorders
               return waves.map((wave, wi) => (
                 <div key={wi}>
                   <div style={{ fontFamily: 'monospace', fontSize: 6, color: C.textDim, letterSpacing: 2, marginBottom: 4 }}>WAVE {wi} {wi === 0 ? '(PARALLEL)' : ''}</div>
@@ -1067,7 +1081,7 @@ export default function NervPage() {
       {/* Data cascade */}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1, overflow: 'hidden', opacity: 0.025 }}>
         {[12, 31, 52, 68, 84].map((left, i) => (
-          <pre key={i} style={{ position: 'absolute', left: `${left}%`, top: 0, fontFamily: 'monospace', fontSize: 7, color: C.orange, lineHeight: 1.5, margin: 0, animation: `nge-cascade ${14 + i * 4}s linear infinite`, animationDelay: `-${i * 5}s` }}>
+          <pre key={left} style={{ position: 'absolute', left: `${left}%`, top: 0, fontFamily: 'monospace', fontSize: 7, color: C.orange, lineHeight: 1.5, margin: 0, animation: `nge-cascade ${14 + i * 4}s linear infinite`, animationDelay: `-${i * 5}s` }}>
             {CASCADE_CONTENT}
           </pre>
         ))}
@@ -1119,7 +1133,7 @@ export default function NervPage() {
 
         <Clock />
 
-        <a href="/" style={{ color: C.textDim, fontSize: 8, letterSpacing: 2, textDecoration: 'none', border: `1px solid ${C.borderHi}`, padding: '4px 10px' }}>◀ DASH</a>
+        <Link href="/" style={{ color: C.textDim, fontSize: 8, letterSpacing: 2, textDecoration: 'none', border: `1px solid ${C.borderHi}`, padding: '4px 10px' }}>◀ DASH</Link>
       </div>
 
       {/* ── 3-column layout ── */}
@@ -1214,7 +1228,8 @@ export default function NervPage() {
                   onKeyDown={e => e.key === 'Enter' && handleSend()}
                   placeholder='talk to Claude or dispatch an agent... (try "intel" to open HL dashboard)'
                   disabled={isLoading}
-                  style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: C.textBright, fontFamily: 'monospace', fontSize: 12, caretColor: C.orange }}
+                  className="focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
+                  style={{ flex: 1, background: 'transparent', border: 'none', color: C.textBright, fontFamily: 'monospace', fontSize: 12, caretColor: C.orange }}
                   autoFocus
                 />
                 {/* TTS toggle */}

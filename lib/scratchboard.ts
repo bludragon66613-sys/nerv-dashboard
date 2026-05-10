@@ -97,8 +97,7 @@ export async function listScratchboards(): Promise<string[]> {
   if (!existsSync(SCRATCHBOARD_DIR)) return []
   const files = await fs.readdir(SCRATCHBOARD_DIR)
   return files
-    .filter(f => f.endsWith('.json'))
-    .map(f => f.replace('.json', ''))
+    .flatMap(f => f.endsWith('.json') ? [f.replace('.json', '')] : [])
 }
 
 export async function cleanupOldScratchboards(maxAgeMs: number = 24 * 60 * 60 * 1000): Promise<number> {

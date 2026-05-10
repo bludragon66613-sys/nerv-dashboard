@@ -133,6 +133,7 @@ async function parseFrontmatter(filePath: string): Promise<{
 }
 
 async function globMd(dir: string, excludeDirs: string[] = []): Promise<string[]> {
+  const excludeSet = new Set(excludeDirs)
   const results: string[] = []
   async function walk(current: string) {
     let entries
@@ -140,7 +141,7 @@ async function globMd(dir: string, excludeDirs: string[] = []): Promise<string[]
     for (const e of entries) {
       const fullPath = path.join(current, e.name)
       if (e.isDirectory()) {
-        if (!excludeDirs.includes(e.name)) await walk(fullPath)
+        if (!excludeSet.has(e.name)) await walk(fullPath)
       } else if (e.isFile() && e.name.endsWith('.md') && !/^(README|CONTRIBUTING|LICENSE)/i.test(e.name)) {
         results.push(fullPath)
       }

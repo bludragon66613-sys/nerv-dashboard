@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
       getDirectory('skills'),
     ])
     const config = parseConfig(configResult.content)
-    const dirNames = skillDirs.filter(d => d.type === 'dir').map(d => d.name)
+    const dirNames = skillDirs.flatMap(d => d.type === 'dir' ? [d.name] : [])
 
     const descs = await Promise.all(
       dirNames.map(async (name) => {
